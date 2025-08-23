@@ -10,9 +10,14 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[2,3, "hamburger", -1]]
+            "roads": [
+                {
+                    "connection": [2,3],
+                    "item": "hamburger",
+                    "direction": -1
+                }
+            ]
         },
-
         {
             "houses": 0,
             "ufos": 0,
@@ -23,11 +28,22 @@
             "aliens": 0,
             "agents": 1,
             "captured_aliens": 0,
-            "roads": [[0,3, "agent", 3],[1,2, "", -1]]
+            "roads": [
+                {
+                    "connection": [0,3],
+                    "item": "agent",
+                    "direction": 3
+                },
+                {
+                    "connection": [1,2],
+                    "item": "",
+                    "direction": -1
+                }
+            ]
         }
     ],
-
-    [{
+    [
+        {
             "houses": 0,
             "ufos": 0,
             "girls": 0,
@@ -37,9 +53,19 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[0,2, "", -1],[1,3, "hamburger", -1]]
+            "roads": [
+                {
+                    "connection": [0,2],
+                    "item": "",
+                    "direction": -1
+                },
+                {
+                    "connection": [1,3],
+                    "item": "hamburger",
+                    "direction": -1
+                }
+            ]
         },
-
         {
             "houses": 1,
             "ufos": 0,
@@ -50,11 +76,22 @@
             "aliens": 1,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[0,1, "alien", 0],[2,3, "", -1]]
+            "roads": [
+                {
+                    "connection": [0,1],
+                    "item": "alien",
+                    "direction": 0
+                },
+                {
+                    "connection": [2,3],
+                    "item": "",
+                    "direction": -1
+                }
+            ]
         }
     ],
-
-    [{
+    [
+        {
             "houses": 0,
             "ufos": 0,
             "girls": 0,
@@ -64,9 +101,14 @@
             "aliens": 1,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[0,2, "alien", 0]]
+            "roads": [
+                {
+                    "connection": [0,2],
+                    "item": "alien",
+                    "direction": 0
+                }
+            ]
         },
-
         {
             "houses": 0,
             "ufos": 0,
@@ -77,11 +119,22 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[0,1, "", -1],[2,3, "hamburger", -1]]
+            "roads": [
+                {
+                    "connection": [0,1],
+                    "item": "",
+                    "direction": -1
+                },
+                {
+                    "connection": [2,3],
+                    "item": "hamburger",
+                    "direction": -1
+                }
+            ]
         }
     ],
-
-    [{
+    [
+        {
             "houses": 0,
             "ufos": 0,
             "girls": 0,
@@ -91,9 +144,19 @@
             "aliens": 0,
             "agents": 1,
             "captured_aliens": 0,
-            "roads": [[0,2, "", -1],[1,3, "agent", 3]]
+            "roads": [
+                {
+                    "connection": [0,2],
+                    "item": "",
+                    "direction": -1
+                },
+                {
+                    "connection": [1,3],
+                    "item": "agent",
+                    "direction": 3
+                }
+            ]
         },
-
         {
             "houses": 1,
             "ufos": 0,
@@ -104,11 +167,17 @@
             "aliens": 1,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[2,3, "alien", 2]]
+            "roads": [
+                {
+                    "connection": [2,3],
+                    "item": "alien",
+                    "direction": 2
+                }
+            ]
         }
     ],
-
-    [{
+    [
+        {
             "houses": 0,
             "ufos": 0,
             "girls": 0,
@@ -118,9 +187,19 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[0,3, "", -1],[1,2, "hamburger", -1]]
+            "roads": [
+                {
+                    "connection": [0,3],
+                    "item": "",
+                    "direction": -1
+                },
+                {
+                    "connection": [1,2],
+                    "item": "hamburger",
+                    "direction": -1
+                }
+            ]
         },
-
         {
             "houses": 0,
             "ufos": 0,
@@ -134,8 +213,8 @@
             "roads": []
         }
     ],
-
-    [{
+    [
+        {
             "houses": 0,
             "ufos": 0,
             "girls": 1,
@@ -145,9 +224,14 @@
             "aliens": 0,
             "agents": 1,
             "captured_aliens": 0,
-            "roads": [[0,2, "agent", 2]]
+            "roads": [
+                {
+                    "connection": [0,2],
+                    "item": "agent",
+                    "direction": 2
+                }
+            ]
         },
-
         {
             "houses": 1,
             "ufos": 0,
@@ -158,11 +242,22 @@
             "aliens": 1,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[0,2, "alien", 0], [1,3, "", -1]]
+            "roads": [
+                {
+                    "connection": [0,2],
+                    "item": "alien",
+                    "direction": 0
+                },
+                {
+                    "connection": [1,3],
+                    "item": "",
+                    "direction": -1
+                }
+            ]
         }
     ],
-
-    [{
+    [
+        {
             "houses": 1,
             "ufos": 0,
             "girls": 0,
@@ -172,9 +267,14 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[1,3, "hamburger", -1]]
+            "roads": [
+                {
+                    "connection": [1,3],
+                    "item": "hamburger",
+                    "direction": -1
+                }
+            ]
         },
-
         {
             "houses": 2,
             "ufos": 1,
@@ -188,8 +288,8 @@
             "roads": []
         }
     ],
-
-    [{
+    [
+        {
             "houses": 0,
             "ufos": 0,
             "girls": 0,
@@ -199,9 +299,14 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[1,3, "hamburger", -1]]
+            "roads": [
+                {
+                    "connection": [1,3],
+                    "item": "hamburger",
+                    "direction": -1
+                }
+            ]
         },
-
         {
             "houses": 0,
             "ufos": 0,
@@ -212,11 +317,17 @@
             "aliens": 0,
             "agents": 1,
             "captured_aliens": 0,
-            "roads": [[2,3, "agent", 2]]
+            "roads": [
+                {
+                    "connection": [2,3],
+                    "item": "agent",
+                    "direction": 2
+                }
+            ]
         }
     ],
-
-    [{
+    [
+        {
             "houses": 0,
             "ufos": 1,
             "girls": 1,
@@ -228,7 +339,6 @@
             "captured_aliens": 0,
             "roads": []
         },
-
         {
             "houses": 1,
             "ufos": 0,
@@ -239,7 +349,13 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
-            "roads": [[1,2, "hamburger", -1]]
+            "roads": [
+                {
+                    "connection": [1,2],
+                    "item": "hamburger",
+                    "direction": -1
+                }
+            ]
         }
     ]
 ]
