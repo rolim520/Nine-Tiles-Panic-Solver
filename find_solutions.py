@@ -2,6 +2,7 @@ import json
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+from tools.calculations import have_road_cycles
 import os
 
 def solution_to_flat_dict(solution):
@@ -15,7 +16,7 @@ def solution_to_flat_dict(solution):
             flat_data[f'orient_{r}{c}'] = tile_data[2]
     return flat_data
 
-with open('Tiles/tiles.json', 'r', encoding='utf-8') as file:
+with open('tiles/tiles.json', 'r', encoding='utf-8') as file:
     # guarda as tiles do jogo na lista game_tiles
     game_tiles = json.load(file)
 
@@ -76,7 +77,8 @@ def find_candidate_tiles(tiling, position, available_pieces):
 def find_valid_tilings_generator(tiling, position, available_pieces):
     # Base case: A solution is found, so yield a copy of it.
     if position == 9:
-        yield [row[:] for row in tiling]
+        if not have_road_cycles(tiling, game_tiles):
+            yield [row[:] for row in tiling]
         return # Stop this path
 
     # Convert linear position to grid coordinates
