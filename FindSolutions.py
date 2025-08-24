@@ -1,5 +1,4 @@
 import json
-from copy import deepcopy
 
 with open('Tiles/tiles.json', 'r', encoding='utf-8') as file:
     # guarda as tiles do jogo na lista game_tiles
@@ -61,7 +60,7 @@ def find_candidate_tiles(tiling, position, available_pieces):
 
 def find_valid_tilings(tiling, position, available_pieces, solutions_list):
     if position == 9:
-        solutions_list.append(deepcopy(tiling))
+        solutions_list.append([row[:] for row in tiling])
         print(tiling, len(solutions_list))
         return
 
@@ -80,9 +79,6 @@ def find_valid_tilings(tiling, position, available_pieces, solutions_list):
         tiling[row][col] = ()
 
 
-# Cria um tensor tridimensional para guardar para cada posição da grid 3x3 uma lista contendo [peça, lado, orientação]
-tiling = [[() for _ in range(3)] for _ in range(3)]
-
 # Caching para as conexões de cada peça
 tile_connections = generate_tile_connections()
 
@@ -90,17 +86,11 @@ tile_connections = generate_tile_connections()
 initial_candidates = [(0,i,j) for i in range(2) for j in range(4)]
 
 tiling_solutions = []
-# for candidate in initial_candidates:
-#     tiling = deepcopy(tiling)
-#    tiling[0][0] = candidate
-#    tiling_solutions += find_valid_tilings(tiling, 0)
+for candidate in initial_candidates:
+    # Cria um tensor tridimensional para guardar para cada posição da grid 3x3 uma lista contendo [peça, lado, orientação]
+    tiling = [[() for _ in range(3)] for _ in range(3)] 
+    tiling[0][0] = candidate
+    available_pieces = set([1,2,3,4,5,6,7,8]) # Zero já foi removido
+    find_valid_tilings(tiling, 1, available_pieces, tiling_solutions)
 
-# for candidate in initial_candidates:
-#     tiling = deepcopy(tiling)
-
-tiling[0][0] = initial_candidates[0]
-available_pieces = set([1,2,3,4,5,6,7,8]) # Zero já foi removido
-find_valid_tilings(tiling, 1, available_pieces, tiling_solutions)
 print(len(tiling_solutions))
-
-# print(tile_connetions((0,1,2)))
