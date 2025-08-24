@@ -83,26 +83,31 @@ def find_valid_tilings_generator(tiling, position, available_pieces):
 
     # Convert linear position to grid coordinates
     row, col = position // 3, position % 3
-    candidates = find_candidate_tiles(tiling, position, available_pieces)
 
-    # Explore each candidate
-    for candidate in candidates:
-        tiling[row][col] = candidate
-        available_pieces.remove(candidate[0])
-        
+    if tiling[row][col] != ():
         # Yield the solutions found from the deeper recursive calls
         yield from find_valid_tilings_generator(tiling, position + 1, available_pieces)
-        
-        # Backtrack
-        available_pieces.add(candidate[0])
-        tiling[row][col] = ()
+    else:
+        candidates = find_candidate_tiles(tiling, position, available_pieces)
+
+        # Explore each candidate
+        for candidate in candidates:
+            tiling[row][col] = candidate
+            available_pieces.remove(candidate[0])
+            
+            # Yield the solutions found from the deeper recursive calls
+            yield from find_valid_tilings_generator(tiling, position + 1, available_pieces)
+            
+            # Backtrack
+            available_pieces.add(candidate[0])
+            tiling[row][col] = ()
 
 
 # --- Main Execution ---
 
 # 1. Setup global variables and constants
 tile_connections = generate_tile_connections()
-initial_candidates = [(0, i, j) for i in range(2) for j in range(4)]
+initial_candidates = [(0, i, j) for i in range(2) for j in range(4)] # Piece 0 at top left
 CHUNK_SIZE = 100_000
 FILE_PATH = 'tiling_solutions.parquet'
 
@@ -119,6 +124,7 @@ print(f"Starting solution generation. Results will be saved to '{FILE_PATH}'")
 
 # 3. Main loop to generate and save solutions
 try:
+    # Piece 0 at top left
     for candidate in initial_candidates:
         tiling = [[() for _ in range(3)] for _ in range(3)]
         tiling[0][0] = candidate
@@ -126,6 +132,52 @@ try:
 
         # The generator produces solutions one by one, keeping memory low
         solution_generator = find_valid_tilings_generator(tiling, 1, available_pieces)
+
+        for solution in solution_generator:
+            solutions_chunk.append(solution_to_flat_dict(solution))
+            total_solutions_found += 1
+
+            # When the chunk is full, write it to the Parquet file
+            if len(solutions_chunk) >= CHUNK_SIZE:
+                table = pa.Table.from_pylist(solutions_chunk)
+                if writer is None:
+                    # Create the Parquet file writer with the first chunk
+                    writer = pq.ParquetWriter(FILE_PATH, table.schema)
+                writer.write_table(table)
+                solutions_chunk = [] # Reset the chunk
+                print(f" ... Wrote {total_solutions_found} solutions so far")
+
+    # Piece 0 at top center
+    for candidate in initial_candidates:
+        tiling = [[() for _ in range(3)] for _ in range(3)]
+        tiling[0][1] = candidate
+        available_pieces = set(range(1, 9))
+
+        # The generator produces solutions one by one, keeping memory low
+        solution_generator = find_valid_tilings_generator(tiling, 0, available_pieces)
+
+        for solution in solution_generator:
+            solutions_chunk.append(solution_to_flat_dict(solution))
+            total_solutions_found += 1
+
+            # When the chunk is full, write it to the Parquet file
+            if len(solutions_chunk) >= CHUNK_SIZE:
+                table = pa.Table.from_pylist(solutions_chunk)
+                if writer is None:
+                    # Create the Parquet file writer with the first chunk
+                    writer = pq.ParquetWriter(FILE_PATH, table.schema)
+                writer.write_table(table)
+                solutions_chunk = [] # Reset the chunk
+                print(f" ... Wrote {total_solutions_found} solutions so far")
+    
+    # Piece 0 at center
+    for candidate in [(0,0,0),(0,1,0)]:
+        tiling = [[() for _ in range(3)] for _ in range(3)]
+        tiling[1][1] = candidate
+        available_pieces = set(range(1, 9))
+
+        # The generator produces solutions one by one, keeping memory low
+        solution_generator = find_valid_tilings_generator(tiling, 0, available_pieces)
 
         for solution in solution_generator:
             solutions_chunk.append(solution_to_flat_dict(solution))
