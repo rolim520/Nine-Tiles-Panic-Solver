@@ -1,6 +1,7 @@
 # main.py
 import json
 import os
+import duckdb
 import multiprocessing
 import glob
 import pandas as pd
@@ -42,27 +43,82 @@ def solve_for_task(task_config):
 
 def merge_parquet_files(temp_dir, final_output_path):
     """
-    Finds all temporary parquet files, merges them into one, and cleans up.
+    Encontra todos os arquivos parquet temporários, os mescla em um único arquivo usando o DuckDB e limpa os arquivos temporários.
+    Este método é extremamente eficiente em termos de memória.
     """
-    print("\nMerging results from all workers...")
-    temp_files = glob.glob(os.path.join(temp_dir, "*.parquet"))
+    print("\nMesclando resultados de todos os workers usando DuckDB...")
     
-    if not temp_files:
-        print("No temporary files found to merge.")
+    # Usa um padrão glob para que o DuckDB encontre todos os arquivos no diretório
+    temp_files_pattern = os.path.join(temp_dir, "*.parquet")
+
+    # O comando SQL para copiar todos os arquivos correspondentes para um novo arquivo Parquet.
+    # O DuckDB gerencia toda a memória nos bastidores.
+    query = f"""
+    COPY (SELECT * FROM read_parquet('{temp_files_pattern}'))
+    TO '{final_output_path}'
+    WITH (FORMAT PARQUET);
+    """
+    
+    try:
+        # Verifica se há arquivos para mesclar
+        temp_files_list = glob.glob(temp_files_pattern)
+        if not temp_files_list:
+            print("Nenhum arquivo temporário encontrado para mesclar.")
+            return
+
+        duckdb.execute(query)
+        
+        # Limpa os arquivos temporários
+        for f in temp_files_list:
+            os.remove(f)
+        os.rmdir(temp_dir)
+        print(f"✅ Arquivos mesclados em '{final_output_path}' e arquivos temporários limpos.")
+    except Exception as e:
+        print(f"❌ Ocorreu um erro durante a mesclagem com o DuckDB: {e}")
+
+def create_duckdb_from_parquet(parquet_path, db_path):
+    """
+    Creates a DuckDB database by importing a Parquet file and adds initial indexes.
+    """
+    print(f"\n--- Creating DuckDB database at '{db_path}' ---")
+    
+    if os.path.exists(db_path):
+        print(f"Database file '{db_path}' already exists. Skipping creation.")
         return
 
-    # Read all temp files into a list of pandas DataFrames
-    df_list = [pd.read_parquet(f) for f in temp_files]
-    
-    # Concatenate all DataFrames and write to the final output file
-    final_df = pd.concat(df_list, ignore_index=True)
-    final_df.to_parquet(final_output_path)
-    
-    # Clean up temporary files
-    for f in temp_files:
-        os.remove(f)
-    os.rmdir(temp_dir)
-    print(f"✅ Merged {len(df_list)} files into '{final_output_path}' and cleaned up.")
+    try:
+        con = duckdb.connect(db_path)
+
+        print(f"Importing data from '{parquet_path}'...")
+        con.execute(f"CREATE TABLE solutions AS SELECT * FROM read_parquet('{parquet_path}');")
+        print("Import complete.")
+
+        # Verification step
+        parquet_rows = con.execute(f"SELECT COUNT(*) FROM read_parquet('{parquet_path}')").fetchone()[0]
+        db_rows = con.execute("SELECT COUNT(*) FROM solutions").fetchone()[0]
+
+        if parquet_rows != db_rows:
+            print(f"❌ Verification failed! Row counts do not match ({parquet_rows} vs {db_rows}).")
+            con.close()
+            return
+
+        print(f"✅ Verification successful. {db_rows:,} rows imported.")
+
+        # Create a few essential indexes to get started
+        print("Creating initial indexes on key columns...")
+        key_stat_columns = [
+            'total_houses', 'total_dogs', 'longest_road_size', 'largest_citizen_group'
+        ]
+        for col in key_stat_columns:
+            print(f"  - Indexing '{col}'...")
+            con.execute(f"CREATE INDEX IF NOT EXISTS idx_{col} ON solutions ({col})")
+        
+        print("✅ Initial indexes created.")
+        con.close()
+        print(f"--- DuckDB database is ready for analysis. ---")
+
+    except Exception as e:
+        print(f"❌ An error occurred during DuckDB creation: {e}")
 
 def main():
     # 1. Define the output directory and get the unique, indexed file path
@@ -75,6 +131,7 @@ def main():
         game_tiles = json.load(file)
     tile_connections = generate_tile_connections(game_tiles)
 
+    """
     # --- MODIFIED: 'start_index' has been removed from the configurations ---
     search_configs = [
         {
@@ -91,6 +148,15 @@ def main():
             "name": "Piece 0 at board center",
             "start_pos": (1, 1),
             "candidates": [(0, 0, 0), (0, 1, 0)]
+        }
+    ]
+    """
+    # --- MODIFIED: 'start_index' has been removed from the configurations ---
+    search_configs = [
+        {
+            "name": "small test",
+            "start_pos": (0, 0),
+            "candidates": [(0, 0, 0)]
         }
     ]
 
@@ -135,13 +201,19 @@ def main():
 
     # --- 4. MERGE AND FINALIZE ---
     total_solutions = sum(results)
-    final_path = get_next_filename("generated_solutions", "tiling_solutions")
-    merge_parquet_files(TEMP_DIR, final_path)
+    final_parquet_path = get_next_filename("generated_solutions", "tiling_solutions")
+    merge_parquet_files(TEMP_DIR, final_parquet_path)
+
+    # --- 5. NEW: AUTOMATICALLY CREATE THE DUCKDB DATABASE ---
+    # This step runs only if the merge was successful and the Parquet file was created.
+    if os.path.exists(final_parquet_path):
+        # Create a matching database name, e.g., 'tiling_solutions_1.duckdb'
+        db_path = os.path.splitext(final_parquet_path)[0] + '.duckdb'
+        create_duckdb_from_parquet(final_parquet_path, db_path)
 
     print("\n-------------------------------------------")
     print(f"✅ All tasks complete. Found a total of {total_solutions:,} solutions.")
     print("-------------------------------------------")
 
 if __name__ == "__main__":
-    # This guard is CRUCIAL for multiprocessing to work correctly
     main()
