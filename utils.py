@@ -3,6 +3,7 @@ import os
 import re
 import pyarrow as pa
 import pyarrow.parquet as pq
+from analysis import calculate_solution_stats
 
 def get_next_filename(directory, base_name="solutions", extension="parquet"):
     """
@@ -80,9 +81,23 @@ class SolutionWriter:
         
         self._solutions_chunk = []
         
-    def process_solutions(self, solution_generator):
+    def process_solutions(self, solution_generator, game_tiles):
+        """
+        Consumes solutions, calculates stats, and writes the combined data to the file.
+        """
         for solution in solution_generator:
-            self._solutions_chunk.append(solution_to_flat_dict(solution))
+            # 1. Convert the grid solution to the flat dictionary (e.g., piece_00, side_00...)
+            flat_solution = solution_to_flat_dict(solution)
+            
+            # 2. NEW: Calculate the statistics for this solution using the new function.
+            solution_stats = calculate_solution_stats(solution, game_tiles)
+            
+            # 3. Merge the two dictionaries into a single record.
+            #    This combines the grid layout with the calculated totals.
+            combined_data = {**flat_solution, **solution_stats}
+            
+            # 4. Append the complete, combined data to the chunk.
+            self._solutions_chunk.append(combined_data)
             self.total_solutions_found += 1
             if len(self._solutions_chunk) >= self.chunk_size:
                 self._write_chunk()
