@@ -87,45 +87,71 @@ def find_candidate_tiles(tiling, position, available_pieces, tile_connections):
                     candidates.append((piece, side, orientation))
     return candidates
 
-def find_valid_tilings_generator(tiling, position, available_pieces, game_tiles, tile_connections, uf_structure):
-    if position == 9:
+def find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_connections, uf_structure, candidate_domains):
+    # BASE CASE: If there are no more domains to fill, a solution is found.
+    if not candidate_domains:
         yield [row[:] for row in tiling]
         return
 
-    row, col = position // 3, position % 3
-
-    if tiling[row][col]:
-        yield from find_valid_tilings_generator(tiling, position + 1, available_pieces, game_tiles, tile_connections, uf_structure)
-    else:
-        candidates = find_candidate_tiles(tiling, position, available_pieces, tile_connections)
+    # --- HEURISTIC: Find the best cell from the pre-calculated domains ---
+    # The cell with the smallest domain (list of candidates) is the most constrained.
+    best_next_cell = min(candidate_domains, key=lambda cell: len(candidate_domains[cell]))
+    
+    # --- RECURSIVE STEP ---
+    r, c = best_next_cell
+    position = r * 3 + c
+    
+    # Iterate through the candidates for ONLY the best cell.
+    for candidate in candidate_domains[best_next_cell]:
+        # A) Perform the cycle check (same as before)
+        uf_copy = uf_structure.copy()
+        cycle_found = False
+        (piece, side, orientation) = candidate
         
-        for candidate in candidates:
-            # 1. Create a copy of the UnionFind structure to work with.
-            uf_copy = uf_structure.copy()
-            cycle_found = False
+        for road in game_tiles[piece][side]["roads"]:
+            local_conn1, local_conn2 = road['connection']
+            global_id1 = TILE_NODES[position][(local_conn1 + orientation) % 4]
+            global_id2 = TILE_NODES[position][(local_conn2 + orientation) % 4]
+            if uf_copy.union(global_id1, global_id2):
+                cycle_found = True
+                break
+        
+        if cycle_found:
+            continue
 
-            # 2. Apply unions for the new candidate tile using the copy's methods.
-            (piece, side, orientation) = candidate
-            for road in game_tiles[piece][side]["roads"]:
-                local_conn1, local_conn2 = road['connection']
-                global_id1 = TILE_NODES[position][(local_conn1 + orientation) % 4]
-                global_id2 = TILE_NODES[position][(local_conn2 + orientation) % 4]
+        # B) If no cycle, prepare for the recursive call
+        tiling[r][c] = candidate
+        available_pieces.remove(candidate[0])
 
-                # The logic is now a clean method call.
-                if uf_copy.union(global_id1, global_id2):
-                    cycle_found = True
-                    break
+        # C) --- FORWARD CHECKING ---
+        # Create a copy of the domains and remove the cell we just filled.
+        new_domains = candidate_domains.copy()
+        del new_domains[best_next_cell]
+        
+        # Update the domains of all remaining empty cells (the neighbors of our choice)
+        dead_end_found = False
+        for empty_r, empty_c in new_domains:
+            empty_pos = empty_r * 3 + empty_c
+            # Recalculate candidates for the neighbor based on the newly updated tiling.
+            # This is where we "cross off" possibilities like in Sudoku.
+            updated_candidates = find_candidate_tiles(tiling, empty_pos, available_pieces, tile_connections)
             
-            # 3. If a cycle was found, prune this branch.
-            if cycle_found:
-                continue
+            if not updated_candidates:
+                dead_end_found = True
+                break # This path is invalid, no need to check other neighbors.
+            
+            new_domains[(empty_r, empty_c)] = updated_candidates
 
-            # 4. If valid, place the tile and recurse with the updated copy.
-            tiling[row][col] = candidate
-            available_pieces.remove(candidate[0])
-            
-            yield from find_valid_tilings_generator(tiling, position + 1, available_pieces, game_tiles, tile_connections, uf_copy)
-            
-            # Backtrack (no change needed here).
+        # If forward checking led to a dead end, prune this branch.
+        if dead_end_found:
+            # Backtrack from the temporary changes before continuing the loop
             available_pieces.add(candidate[0])
-            tiling[row][col] = ()
+            tiling[r][c] = ()
+            continue
+
+        # D) Make the recursive call with the pruned domains
+        yield from find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_connections, uf_copy, new_domains)
+        
+        # E) Backtrack
+        available_pieces.add(candidate[0])
+        tiling[r][c] = ()

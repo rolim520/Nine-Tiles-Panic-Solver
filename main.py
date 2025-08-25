@@ -5,7 +5,7 @@ import multiprocessing
 import glob
 import pandas as pd
 
-from solver import UnionFind, generate_tile_connections, find_valid_tilings_generator
+from solver import UnionFind, generate_tile_connections, find_valid_tilings_generator, find_candidate_tiles
 from utils import SolutionWriter, get_next_filename
 from constants import NUM_NODES, TILE_NODES
 
@@ -14,13 +14,8 @@ CHUNK_SIZE = 100_000
 TEMP_DIR = "temp_solutions" # A dedicated folder for temporary files
 
 def solve_for_task(task_config):
-    """
-    This is the worker function that each process will run.
-    It solves for a single starting configuration and writes to a unique temp file.
-    """
-    # 1. Unpack all the necessary data for the solver
+    # --- MODIFIED: 'start_index' has been removed ---
     worker_id = task_config['id']
-    start_index = task_config['start_index']
     tiling = task_config['tiling']
     available_pieces = task_config['available_pieces']
     uf_structure = task_config['uf_structure']
@@ -28,15 +23,21 @@ def solve_for_task(task_config):
     tile_connections = task_config['tile_connections']
 
     temp_file_path = os.path.join(TEMP_DIR, f"solutions_{worker_id}.parquet")
-
-    # Pass the worker_id to the writer
-    with SolutionWriter(temp_file_path, CHUNK_SIZE, silent=True, worker_id=worker_id) as writer:
-        solution_generator = find_valid_tilings_generator(
-            tiling, start_index, available_pieces, game_tiles, tile_connections, uf_structure
-        )
-        writer.process_solutions(solution_generator)
     
-    # Return the number of solutions found by this worker
+    initial_domains = {}
+    for r in range(3):
+        for c in range(3):
+            if not tiling[r][c]:
+                pos = r * 3 + c
+                initial_domains[(r, c)] = find_candidate_tiles(tiling, pos, available_pieces, tile_connections)
+
+    with SolutionWriter(temp_file_path, CHUNK_SIZE, silent=True, worker_id=worker_id) as writer:
+        # The new generator is called here, which doesn't use a start_index
+        solution_generator = find_valid_tilings_generator(
+            tiling, available_pieces, game_tiles, tile_connections, uf_structure, initial_domains
+        )
+        writer.process_solutions(solution_generator, game_tiles)
+    
     return writer.total_solutions_found
 
 def merge_parquet_files(temp_dir, final_output_path):
@@ -74,23 +75,21 @@ def main():
         game_tiles = json.load(file)
     tile_connections = generate_tile_connections(game_tiles)
 
+    # --- MODIFIED: 'start_index' has been removed from the configurations ---
     search_configs = [
         {
             "name": "Piece 0 at top-left corner",
             "start_pos": (0, 0),
-            "start_index": 1,
             "candidates": [(0, side, orient) for side in range(2) for orient in range(4)]
         },
         {
             "name": "Piece 0 at top-center edge",
             "start_pos": (0, 1),
-            "start_index": 0,
             "candidates": [(0, side, orient) for side in range(2) for orient in range(4)]
         },
         {
             "name": "Piece 0 at board center",
             "start_pos": (1, 1),
-            "start_index": 0,
             "candidates": [(0, 0, 0), (0, 1, 0)]
         }
     ]
@@ -117,7 +116,6 @@ def main():
             # Package everything a worker needs into a dictionary
             tasks.append({
                 'id': task_id_counter,
-                'start_index': config['start_index'],
                 'tiling': tiling,
                 'available_pieces': available_pieces,
                 'uf_structure': uf,
