@@ -1,7 +1,6 @@
 # analysis.py
 
-from collections import Counter
-# We need the TILE_NODES map to build the graph
+from collections import Counter, deque
 from constants import TILE_NODES
 
 STAT_KEYS = [
@@ -9,11 +8,73 @@ STAT_KEYS = [
     "aliens", "agents", "captured_aliens", "curves"
 ]
 
+def find_largest_component_size(grid_properties, property_key):
+    """
+    Finds the size of the largest connected group of tiles that share a property.
+    Uses a Breadth-First Search (BFS) to find "islands" of connected tiles.
+    """
+    max_size = 0
+    visited = set()
+
+    for r in range(3):
+        for c in range(3):
+            if grid_properties[r][c][property_key] > 0 and (r, c) not in visited:
+                
+                current_size = 0
+                # --- MODIFIED: Use a deque for an efficient queue ---
+                q = deque([(r, c)]) 
+                visited.add((r, c))
+
+                while q:
+                    # --- MODIFIED: Use popleft() which is faster than pop(0) ---
+                    curr_r, curr_c = q.popleft() 
+                    current_size += 1
+
+                    for dr, dc in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                        next_r, next_c = curr_r + dr, curr_c + dc
+                        
+                        if 0 <= next_r < 3 and 0 <= next_c < 3 and \
+                           (next_r, next_c) not in visited and \
+                           grid_properties[next_r][next_c][property_key] > 0:
+                            
+                            visited.add((next_r, next_c))
+                            q.append((next_r, next_c))
+                
+                max_size = max(max_size, current_size)
+
+    return max_size
+
+def calculate_adjacency_stats(solution, game_tiles):
+    """
+    Calculates statistics based on the largest connected group for each property.
+    """
+    # Step 1: Pre-process the grid to create a simple property map.
+    # This part is the same as before.
+    grid_properties = [[{} for _ in range(3)] for _ in range(3)]
+    for r in range(3):
+        for c in range(3):
+            (piece, side, _) = solution[r][c]
+            tile_data = game_tiles[piece][side]
+            grid_properties[r][c] = {
+                'dogs': tile_data.get('dogs', 0),
+                'houses': tile_data.get('houses', 0),
+                'aliens': tile_data.get('aliens', 0),
+                'citizens': tile_data.get('boys', 0) + tile_data.get('girls', 0)
+            }
+
+    # Step 2: Call the component-finding function for each property
+    stats = {
+        "largest_dog_group": find_largest_component_size(grid_properties, 'dogs'),
+        "largest_house_group": find_largest_component_size(grid_properties, 'houses'),
+        "largest_alien_group": find_largest_component_size(grid_properties, 'aliens'),
+        "largest_citizen_group": find_largest_component_size(grid_properties, 'citizens'),
+    }
+
+    return stats
+
+
 def analyze_road_network(solution, game_tiles):
-    """
-    Analyzes the road network of a solution by building and traversing a graph.
-    """
-    # 1. Build an adjacency list to represent the graph of all 24 connection nodes.
+    # ... (this function is unchanged)
     adj = {i: [] for i in range(24)}
     for r in range(3):
         for c in range(3):
@@ -25,24 +86,18 @@ def analyze_road_network(solution, game_tiles):
                 global_id1 = TILE_NODES[position][(local_conn1 + orientation) % 4]
                 global_id2 = TILE_NODES[position][(local_conn2 + orientation) % 4]
                 
-                # Add a connection (an edge) between the two nodes
                 adj[global_id1].append(global_id2)
                 adj[global_id2].append(global_id1)
 
-    # 2. Traverse the graph to find all distinct roads and their lengths.
     visited = set()
     road_lengths = []
     
-    for i in range(24): # Iterate through all possible nodes
-        # If a node is part of a road and we haven't visited it yet,
-        # it must be the start of a new, distinct road.
+    for i in range(24):
         if i not in visited and adj[i]:
-            
-            component_nodes = set() # Nodes in this specific road
-            q = [i] # Queue for Breadth-First Search (BFS)
+            component_nodes = set()
+            q = [i]
             visited.add(i)
             
-            # Perform BFS to find all connected nodes in this road
             head = 0
             while head < len(q):
                 u = q[head]
@@ -53,18 +108,15 @@ def analyze_road_network(solution, game_tiles):
                         visited.add(v)
                         q.append(v)
             
-            # The length of a road is the number of edges (tile segments) in it.
-            # In a graph component, this is the sum of degrees / 2.
             edge_sum_in_component = sum(len(adj[node]) for node in component_nodes)
             road_length = edge_sum_in_component // 2
             road_lengths.append(road_length)
             
-    # 3. Calculate the final statistics from the list of found road lengths.
     if not road_lengths:
         return {
             "total_roads": 0,
             "longest_road_size": 0,
-            "max_same_length_roads": 0 # New stat name
+            "max_roads_of_same_length": 0
         }
     
     road_length_counts = Counter(road_lengths)
@@ -72,8 +124,7 @@ def analyze_road_network(solution, game_tiles):
     return {
         "total_roads": len(road_lengths),
         "longest_road_size": max(road_lengths),
-        # --- MODIFIED: Find the highest value from the counts instead of returning the dict ---
-        "max_same_length_roads": max(road_length_counts.values())
+        "max_roads_of_same_length": max(road_length_counts.values())
     }
 
 
@@ -81,7 +132,7 @@ def calculate_solution_stats(solution, game_tiles):
     """
     Calculates all aggregate statistics for a complete 3x3 tiling solution.
     """
-    # --- Part 1: Simple counting stats (existing logic) ---
+    # Part 1: Simple counting stats
     stats = {f"total_{key}": 0 for key in STAT_KEYS}
     stats["total_tiles_without_roads"] = 0
 
@@ -97,10 +148,12 @@ def calculate_solution_stats(solution, game_tiles):
             if not tile_data["roads"]:
                 stats["total_tiles_without_roads"] += 1
     
-    # --- Part 2: NEW - Road network analysis ---
+    # Part 2: Road network analysis
     road_stats = analyze_road_network(solution, game_tiles)
-    
-    # Merge the two dictionaries of stats together
     stats.update(road_stats)
+
+    # --- Part 3: NEW - Adjacency analysis ---
+    adjacency_stats = calculate_adjacency_stats(solution, game_tiles)
+    stats.update(adjacency_stats)
                     
     return stats
