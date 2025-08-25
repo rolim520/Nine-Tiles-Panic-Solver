@@ -1,26 +1,36 @@
-import pandas as pd
-import pyarrow.parquet as pq
+import duckdb
 import pygame
 import os
 import sys
 import re
 
-# --- Configuration ---
+# --- Configuração ---
 IMAGE_DIR = os.path.join('tiles', 'piece_images')
 SOLUTION_DIR = 'generated_solutions'
-WINDOW_SIZE = 800
+# Janela mais larga para acomodar o painel de estatísticas
+WINDOW_WIDTH = 1200
+WINDOW_HEIGHT = 800
 GRID_DIM = 3
-GRID_LINE_WIDTH = 5
-GRID_LINE_COLOR = (0, 0, 0) # Black
 
-# --- NEW: Helper function to find the latest solution file ---
-def find_latest_solution_file(directory, base_name="tiling_solutions", extension="parquet"):
+# --- Configuração do Painel de Estatísticas ---
+STATS_PANEL_WIDTH = 400
+STATS_BG_COLOR = (30, 30, 30)
+STATS_FONT_COLOR = (220, 220, 220)
+STATS_FONT_SIZE = 22
+STATS_HEADER_FONT_SIZE = 28
+
+# --- Configuração da Grade de Visualização ---
+GRID_SIZE = WINDOW_HEIGHT # A grade será um quadrado de 800x800
+GRID_LINE_WIDTH = 5
+GRID_LINE_COLOR = (0, 0, 0) # Preto
+
+def find_latest_solution_file(directory, base_name="tiling_solutions", extension="duckdb"):
     """
-    Finds the solution file with the highest index in a given directory.
-    Returns the full path to the file, or an error message.
+    Encontra o arquivo de solução com o maior índice em um diretório.
+    Agora procura por arquivos .duckdb por padrão.
     """
     if not os.path.isdir(directory):
-        return None, f"Solution directory '{directory}' not found."
+        return None, f"Diretório de soluções '{directory}' não encontrado."
 
     pattern = re.compile(rf"{base_name}_(\d+)\.{extension}")
     
@@ -36,103 +46,142 @@ def find_latest_solution_file(directory, base_name="tiling_solutions", extension
                 latest_file_path = os.path.join(directory, filename)
     
     if latest_file_path:
-        return latest_file_path, None # Success
+        return latest_file_path, None
     else:
-        return None, f"No solution files (e.g., 'tiling_solutions_1.parquet') found in '{directory}'."
+        return None, f"Nenhum arquivo de solução (ex: 'tiling_solutions_1.duckdb') encontrado em '{directory}'."
 
 def preload_images(tile_size):
     """
-    Loads and scales all 18 base tile images into a dictionary (cache) once.
-    This avoids slow disk access during the main loop.
+    Carrega e escala todas as 18 imagens de peças em um dicionário (cache).
     """
     image_cache = {}
-    print("Pre-loading and scaling images...")
+    print("Pré-carregando e escalando imagens...")
     for side in range(2):
         for piece in range(9):
             image_filename = f"{side}_{piece}.png"
             image_path = os.path.join(IMAGE_DIR, image_filename)
             try:
-                # Load the original image
                 tile_image = pygame.image.load(image_path)
-                # Scale it to the final display size and store in the cache
                 scaled_tile = pygame.transform.scale(tile_image, (tile_size, tile_size))
                 image_cache[(side, piece)] = scaled_tile
             except pygame.error:
-                print(f"⚠️ Warning: Could not load image '{image_path}'. It will be missing.")
+                print(f"⚠️ Aviso: Não foi possível carregar a imagem '{image_path}'.")
                 image_cache[(side, piece)] = None
-    print("✅ Image cache created.")
+    print("✅ Cache de imagens criado.")
     return image_cache
 
-def draw_solution(screen, pq_file, solution_index, image_cache):
+def draw_stats(screen, solution_data, font, header_font):
     """
-    Draws a solution using the pre-loaded image cache for maximum speed.
+    Desenha o painel lateral com todas as estatísticas da solução.
     """
-    num_solutions = pq_file.metadata.num_rows
+    # Cria uma superfície para o painel
+    stats_panel = pygame.Surface((STATS_PANEL_WIDTH, WINDOW_HEIGHT))
+    stats_panel.fill(STATS_BG_COLOR)
+    
+    # Desenha o cabeçalho
+    header_text = header_font.render("Estatísticas da Solução", True, (255, 255, 255))
+    stats_panel.blit(header_text, (20, 20))
+
+    # Filtra para obter apenas as colunas de estatísticas (não as de layout)
+    excluded_cols = [f'piece_{r}{c}' for r in range(3) for c in range(3)] + \
+                    [f'side_{r}{c}' for r in range(3) for c in range(3)] + \
+                    [f'orientation_{r}{c}' for r in range(3) for c in range(3)]
+    
+    y_offset = 70
+    for col_name, value in solution_data.items():
+        if col_name not in excluded_cols:
+            # Formata o texto
+            stat_text = f"{col_name}: {value}"
+            text_surface = font.render(stat_text, True, STATS_FONT_COLOR)
+            stats_panel.blit(text_surface, (20, y_offset))
+            y_offset += 30 # Espaçamento entre as linhas
+
+    # Desenha o painel na tela principal
+    screen.blit(stats_panel, (GRID_SIZE, 0))
+
+def draw_solution(screen, db_connection, solution_index, image_cache, fonts):
+    """
+    Busca uma solução do banco de dados e a desenha, incluindo suas estatísticas.
+    """
+    # Busca o número total de soluções (se necessário, pode ser feito uma vez no início)
+    num_solutions = db_connection.execute('SELECT COUNT(*) FROM solutions').fetchone()[0]
     solution_index = max(0, min(solution_index, num_solutions - 1))
 
-    solution_row = None
-    rows_processed = 0
-    for i in range(pq_file.num_row_groups):
-        row_group_meta = pq_file.metadata.row_group(i)
-        if rows_processed <= solution_index < rows_processed + row_group_meta.num_rows:
-            df_chunk = pq_file.read_row_group(i).to_pandas()
-            index_in_chunk = solution_index - rows_processed
-            solution_row = df_chunk.iloc[index_in_chunk]
-            break
-        rows_processed += row_group_meta.num_rows
-
-    if solution_row is None:
+    # Busca a solução específica e suas estatísticas do banco de dados
+    query = f"SELECT * FROM solutions LIMIT 1 OFFSET {solution_index}"
+    solution_df = db_connection.execute(query).fetchdf()
+    
+    if solution_df.empty:
         return
 
-    pygame.display.set_caption(f"Solution #{solution_index} of {num_solutions - 1}")
-    screen.fill((20, 20, 20))
-    tile_size = WINDOW_SIZE // GRID_DIM
+    solution_row = solution_df.iloc[0]
 
+    # --- Desenho ---
+    pygame.display.set_caption(f"Solução #{solution_index} de {num_solutions - 1}")
+    screen.fill((20, 20, 20)) # Fundo geral
+    tile_size = GRID_SIZE // GRID_DIM
+
+    # Desenha a grade de peças
     for r in range(GRID_DIM):
         for c in range(GRID_DIM):
-            piece, side, orientation = solution_row[f'piece_{r}{c}'], solution_row[f'side_{r}{c}'], solution_row[f'orient_{r}{c}']
+            piece = solution_row[f'piece_{r}{c}']
+            side = solution_row[f'side_{r}{c}']
+            orientation = solution_row[f'orientation_{r}{c}']
             scaled_tile = image_cache.get((side, piece))
 
             if scaled_tile:
                 rotation_angle = -(orientation * 90)
                 rotated_tile = pygame.transform.rotate(scaled_tile, rotation_angle)
                 screen.blit(rotated_tile, (c * tile_size, r * tile_size))
-            else:
-                placeholder = pygame.Rect(c * tile_size, r * tile_size, tile_size, tile_size)
-                pygame.draw.rect(screen, (255, 0, 0), placeholder, 2)
 
+    # Desenha as linhas da grade
     for i in range(1, GRID_DIM):
-        pygame.draw.line(screen, GRID_LINE_COLOR, (i * tile_size, 0), (i * tile_size, WINDOW_SIZE), GRID_LINE_WIDTH)
-        pygame.draw.line(screen, GRID_LINE_COLOR, (0, i * tile_size), (WINDOW_SIZE, i * tile_size), GRID_LINE_WIDTH)
-    
-    pygame.draw.rect(screen, GRID_LINE_COLOR, (0, 0, WINDOW_SIZE, WINDOW_SIZE), GRID_LINE_WIDTH)
+        pygame.draw.line(screen, GRID_LINE_COLOR, (i * tile_size, 0), (i * tile_size, GRID_SIZE), GRID_LINE_WIDTH)
+        pygame.draw.line(screen, GRID_LINE_COLOR, (0, i * tile_size), (GRID_SIZE, i * tile_size), GRID_LINE_WIDTH)
+    pygame.draw.rect(screen, GRID_LINE_COLOR, (0, 0, GRID_SIZE, GRID_SIZE), GRID_LINE_WIDTH)
+
+    # NOVO: Desenha o painel de estatísticas
+    draw_stats(screen, solution_row, fonts['stats'], fonts['header'])
 
     pygame.display.flip()
 
 def main(initial_index):
-    parquet_file_path, error = find_latest_solution_file(SOLUTION_DIR)
+    db_file_path, error = find_latest_solution_file(SOLUTION_DIR)
     
     if error:
-        print(f"❌ Error: {error}")
+        print(f"❌ Erro: {error}")
         return
 
     try:
-        pq_file = pq.ParquetFile(parquet_file_path)
-        num_solutions = pq_file.metadata.num_rows
-        print(f"✅ Loaded '{parquet_file_path}' with {num_solutions:,} solutions.")
+        # Conecta-se ao banco de dados DuckDB em modo de apenas leitura
+        db_con = duckdb.connect(database=db_file_path, read_only=True)
+        num_solutions = db_con.execute('SELECT COUNT(*) FROM solutions').fetchone()[0]
+        print(f"✅ Conectado a '{db_file_path}' com {num_solutions:,} soluções.")
     except Exception as e:
-        print(f"❌ Error: Could not open '{parquet_file_path}'. Details: {e}")
+        print(f"❌ Erro: Não foi possível abrir o banco de dados '{db_file_path}'. Detalhes: {e}")
         return
 
     pygame.init()
-    screen = pygame.display.set_mode((WINDOW_SIZE, WINDOW_SIZE))
+    screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     clock = pygame.time.Clock()
     
-    tile_size = WINDOW_SIZE // GRID_DIM
+    # Carrega as fontes
+    try:
+        stats_font = pygame.font.Font(None, STATS_FONT_SIZE)
+        header_font = pygame.font.Font(None, STATS_HEADER_FONT_SIZE)
+        fonts = {'stats': stats_font, 'header': header_font}
+    except Exception as e:
+        print(f"Erro ao carregar fontes: {e}. Usando fonte padrão.")
+        stats_font = pygame.font.SysFont(None, STATS_FONT_SIZE)
+        header_font = pygame.font.SysFont(None, STATS_HEADER_FONT_SIZE)
+        fonts = {'stats': stats_font, 'header': header_font}
+
+
+    tile_size = GRID_SIZE // GRID_DIM
     image_cache = preload_images(tile_size)
 
     current_index = initial_index
-    draw_solution(screen, pq_file, current_index, image_cache)
+    draw_solution(screen, db_con, current_index, image_cache, fonts)
 
     scroll_delay = 250
     scroll_interval = 1 
@@ -151,7 +200,7 @@ def main(initial_index):
                 if event.key == pygame.K_LEFT:  direction = -1
                 if direction != 0:
                     current_index = (current_index + direction + num_solutions) % num_solutions
-                    draw_solution(screen, pq_file, current_index, image_cache)
+                    draw_solution(screen, db_con, current_index, image_cache, fonts)
                     scroll_timer = pygame.time.get_ticks() + scroll_delay
         
         keys = pygame.key.get_pressed()
@@ -163,11 +212,12 @@ def main(initial_index):
 
         if direction != 0 and now > scroll_timer:
             current_index = (current_index + direction + num_solutions) % num_solutions
-            draw_solution(screen, pq_file, current_index, image_cache)
+            draw_solution(screen, db_con, current_index, image_cache, fonts)
             scroll_timer = now + scroll_interval
 
+    db_con.close()
     pygame.quit()
-    print("Visualizer closed.")
+    print("Visualizador fechado.")
 
 if __name__ == "__main__":
     start_index = 0
@@ -175,6 +225,6 @@ if __name__ == "__main__":
         try:
             start_index = int(sys.argv[1])
         except ValueError:
-            print("Usage: python visualize.py <start_index>")
+            print("Uso: python visualize.py <índice_inicial>")
             sys.exit(1)
     main(start_index)
