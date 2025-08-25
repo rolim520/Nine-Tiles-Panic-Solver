@@ -3,14 +3,43 @@ import pyarrow.parquet as pq
 import pygame
 import os
 import sys
+import re
 
 # --- Configuration ---
 IMAGE_DIR = os.path.join('tiles', 'piece_images')
-PARQUET_FILE = 'tiling_solutions.parquet'
+# --- MODIFIED: Specify the directory instead of a single file ---
+SOLUTION_DIR = 'generated_solutions'
 WINDOW_SIZE = 800
 GRID_DIM = 3
 GRID_LINE_WIDTH = 5
 GRID_LINE_COLOR = (0, 0, 0) # Black
+
+# --- NEW: Helper function to find the latest solution file ---
+def find_latest_solution_file(directory, base_name="tiling_solutions", extension="parquet"):
+    """
+    Finds the solution file with the highest index in a given directory.
+    Returns the full path to the file, or an error message.
+    """
+    if not os.path.isdir(directory):
+        return None, f"Solution directory '{directory}' not found."
+
+    pattern = re.compile(rf"{base_name}_(\d+)\.{extension}")
+    
+    highest_index = -1
+    latest_file_path = None
+    
+    for filename in os.listdir(directory):
+        match = pattern.match(filename)
+        if match:
+            index = int(match.group(1))
+            if index > highest_index:
+                highest_index = index
+                latest_file_path = os.path.join(directory, filename)
+    
+    if latest_file_path:
+        return latest_file_path, None # Success
+    else:
+        return None, f"No solution files (e.g., 'tiling_solutions_1.parquet') found in '{directory}'."
 
 def preload_images(tile_size):
     """
@@ -73,23 +102,28 @@ def draw_solution(screen, pq_file, solution_index, image_cache):
                 placeholder = pygame.Rect(c * tile_size, r * tile_size, tile_size, tile_size)
                 pygame.draw.rect(screen, (255, 0, 0), placeholder, 2)
 
-    # --- Draw Internal Grid Lines ---
     for i in range(1, GRID_DIM):
         pygame.draw.line(screen, GRID_LINE_COLOR, (i * tile_size, 0), (i * tile_size, WINDOW_SIZE), GRID_LINE_WIDTH)
         pygame.draw.line(screen, GRID_LINE_COLOR, (0, i * tile_size), (WINDOW_SIZE, i * tile_size), GRID_LINE_WIDTH)
     
-    # --- NEW: Draw External Border ---
     pygame.draw.rect(screen, GRID_LINE_COLOR, (0, 0, WINDOW_SIZE, WINDOW_SIZE), GRID_LINE_WIDTH)
 
     pygame.display.flip()
 
 def main(initial_index):
+    # --- MODIFIED: Dynamically find the file to open ---
+    parquet_file_path, error = find_latest_solution_file(SOLUTION_DIR)
+    
+    if error:
+        print(f"❌ Error: {error}")
+        return
+
     try:
-        pq_file = pq.ParquetFile(PARQUET_FILE)
+        pq_file = pq.ParquetFile(parquet_file_path)
         num_solutions = pq_file.metadata.num_rows
-        print(f"✅ Loaded '{PARQUET_FILE}' with {num_solutions:,} solutions.")
+        print(f"✅ Loaded '{parquet_file_path}' with {num_solutions:,} solutions.")
     except Exception as e:
-        print(f"❌ Error: Could not open '{PARQUET_FILE}'. Details: {e}")
+        print(f"❌ Error: Could not open '{parquet_file_path}'. Details: {e}")
         return
 
     pygame.init()
