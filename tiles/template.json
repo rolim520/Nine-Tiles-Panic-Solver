@@ -8,5 +8,6 @@
     "aliens": 0,
     "agents": 0,
     "captured_aliens": 0,
+    "curves": 0,
     "roads": [[0,0, "agent", 0],[0,0, "alien", 0], [0,0, "hamburger", -1], [0,0, "", -1]]
 }
