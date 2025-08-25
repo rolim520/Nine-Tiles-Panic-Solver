@@ -8,48 +8,261 @@ STAT_KEYS = [
     "aliens", "agents", "captured_aliens", "curves"
 ]
 
-def find_largest_component_size(grid_properties, property_key):
-    """
-    Finds the size of the largest connected group of tiles that share a property.
-    Uses a Breadth-First Search (BFS) to find "islands" of connected tiles.
-    """
-    max_size = 0
-    visited = set()
+# =============================================================================
+# SECTION 1: FUNÇÕES DE ESTATÍSTICAS INDIVIDUAIS (OTIMIZADAS)
+# =============================================================================
 
+def _find_sets_in_sequence(road, sequence):
+    """
+    Função auxiliar para encontrar o número máximo de sequências não sobrepostas.
+    (Reintegrada)
+    """
+    items_only = [item for item, _ in road]
+    used_indices, num_sets = set(), 0
+    
+    for i in range(len(items_only)):
+        if items_only[i] == sequence[0] and i not in used_indices:
+            found_middle_idx = -1
+            for j in range(i + 1, len(items_only)):
+                if j in used_indices: continue
+                if items_only[j] in sequence and items_only[j] != sequence[1]: break
+                if items_only[j] == sequence[1]:
+                    found_middle_idx = j
+                    break
+            
+            if found_middle_idx != -1:
+                found_last_idx = -1
+                for k in range(found_middle_idx + 1, len(items_only)):
+                    if k in used_indices: continue
+                    if items_only[k] in sequence and items_only[k] != sequence[2]: break
+                    if items_only[k] == sequence[2]:
+                        found_last_idx = k
+                        break
+                
+                if found_last_idx != -1:
+                    num_sets += 1
+                    used_indices.add(i)
+                    used_indices.add(found_middle_idx)
+                    used_indices.add(found_last_idx)
+    return num_sets
+
+def _calculate_captured_indices(agents, aliens):
+    captured_indices = set()
+    for agent in agents:
+        agent_pos, agent_dir = agent['pos'], agent['dir']
+        potential_targets = []
+        if agent_dir == 1:
+            potential_targets = [a for a in aliens if a['pos'] > agent_pos]
+            if potential_targets:
+                target = min(potential_targets, key=lambda a: a['pos'])
+                if target['pos'] not in captured_indices:
+                    captured_indices.add(target['pos'])
+        elif agent_dir == 0:
+            potential_targets = [a for a in aliens if a['pos'] < agent_pos]
+            if potential_targets:
+                target = max(potential_targets, key=lambda a: a['pos'])
+                if target['pos'] not in captured_indices:
+                    captured_indices.add(target['pos'])
+    return captured_indices
+
+def _calculate_abduction_total(aliens, agent_indices):
+    if not agent_indices: return 0
+    count = 0
+    for alien in aliens:
+        alien_pos, alien_dir = alien['pos'], alien['dir']
+        if (alien_dir == 1 and any(a_idx > alien_pos for a_idx in agent_indices)) or \
+           (alien_dir == 0 and any(a_idx < alien_pos for a_idx in agent_indices)):
+            count += 1
+    return count
+
+def _calculate_eat_it_up_optimized(all_items, captured_indices):
+    max_hamburgers = 0
+    uncaptured_aliens = [a for a in all_items['alien'] if a['pos'] not in captured_indices]
+
+    for alien in uncaptured_aliens:
+        alien_pos, alien_dir = alien['pos'], alien['dir']
+        hamburgers_in_sight = 0
+        
+        potential_hamburgers = []
+        if alien_dir == 1:
+            potential_hamburgers = [h for h in all_items['hamburger'] if h['pos'] > alien_pos]
+        elif alien_dir == 0:
+            potential_hamburgers = [h for h in all_items['hamburger'] if h['pos'] < alien_pos]
+
+        for ham in potential_hamburgers:
+            is_blocked = False
+            slice_start, slice_end = sorted((alien_pos, ham['pos']))
+            slice_start += 1
+            
+            for blocker in [a for a in all_items['alien'] if slice_start <= a['pos'] < slice_end]:
+                blocker_pos, blocker_dir = blocker['pos'], blocker['dir']
+                is_looking_at_ham = (blocker_dir == 1 and blocker_pos < ham['pos']) or \
+                                    (blocker_dir == 0 and blocker_pos > ham['pos'])
+                if is_looking_at_ham:
+                    agent_slice_start, agent_slice_end = sorted((alien_pos, blocker_pos))
+                    agent_slice_start += 1
+                    has_negating_agent = any(
+                        agent_slice_start <= agent['pos'] < agent_slice_end for agent in all_items['agent'])
+                    if not has_negating_agent:
+                        is_blocked = True
+                        break
+            if not is_blocked:
+                hamburgers_in_sight += 1
+        max_hamburgers = max(max_hamburgers, hamburgers_in_sight)
+    return max_hamburgers
+
+def _calculate_max_aliens_between_agents(all_items):
+    max_aliens = 0
+    agents = sorted(all_items['agent'], key=lambda x: x['pos'])
+    if len(agents) < 2:
+        return 0
+        
+    for i in range(len(agents) - 1):
+        agent_A = agents[i]
+        agent_B = agents[i+1]
+        
+        if agent_A['dir'] == 1 and agent_B['dir'] == 0:
+            slice_start = agent_A['pos'] + 1
+            slice_end = agent_B['pos']
+            aliens_in_slice = sum(1 for alien in all_items['alien'] if slice_start <= alien['pos'] < slice_end)
+            max_aliens = max(max_aliens, aliens_in_slice)
+    return max_aliens
+
+# =============================================================================
+# SECTION 2: PROCESSAMENTO CENTRALIZADO E CONSTRUÇÃO DE ESTRADAS
+# =============================================================================
+
+def _process_road_for_stats(road):
+    if not road: return {}
+
+    all_items = {'alien': [], 'agent': [], 'hamburger': []}
+    for i, (item, direction) in enumerate(road):
+        if item in all_items:
+            all_items[item].append({'pos': i, 'dir': direction})
+
+    agent_indices = {agent['pos'] for agent in all_items['agent']}
+    captured_indices = _calculate_captured_indices(all_items['agent'], all_items['alien'])
+    
+    fwd_sets = _find_sets_in_sequence(road, ['agent', 'alien', 'hamburger'])
+    rev_sets = _find_sets_in_sequence(road, ['hamburger', 'alien', 'agent'])
+
+    return {
+        'num_agents': len(all_items['agent']),
+        'num_aliens': len(all_items['alien']),
+        'aliens_caught': len(captured_indices),
+        'abduction_total': _calculate_abduction_total(all_items['alien'], agent_indices),
+        'eat_it_up': _calculate_eat_it_up_optimized(all_items, captured_indices),
+        'max_aliens_between_two_agents': _calculate_max_aliens_between_agents(all_items),
+        'food_chain_sets': max(fwd_sets, rev_sets),
+    }
+
+def _build_all_roads(solution, game_tiles):
+    adj, edge_map = {i: [] for i in range(24)}, {}
     for r in range(3):
         for c in range(3):
-            if grid_properties[r][c][property_key] > 0 and (r, c) not in visited:
-                
-                current_size = 0
-                # --- MODIFIED: Use a deque for an efficient queue ---
-                q = deque([(r, c)]) 
+            (piece, side, orientation) = solution[r][c]
+            position = r * 3 + c
+            for road_info in game_tiles[piece][side].get("roads", []):
+                c1, c2 = road_info['connection']
+                g1 = TILE_NODES[position][(c1 + orientation) % 4]
+                g2 = TILE_NODES[position][(c2 + orientation) % 4]
+                adj[g1].append(g2); adj[g2].append(g1)
+                d = road_info.get('direction', -1)
+                target_node = -1
+                if d != -1: target_node = TILE_NODES[position][(d + orientation) % 4]
+                edge = tuple(sorted((g1, g2)))
+                edge_map[edge] = {'item': road_info.get('item', ''), 'target_node': target_node}
+
+    visited_nodes, all_roads = set(), []
+    for i in range(24):
+        if i not in visited_nodes and adj[i]:
+            component_nodes, q = set(), deque([i]); visited_nodes.add(i)
+            while q:
+                u = q.popleft(); component_nodes.add(u)
+                for v in adj[u]:
+                    if v not in visited_nodes: visited_nodes.add(v); q.append(v)
+            
+            endpoints = [n for n in component_nodes if sum(1 for neighbor in adj[n] if neighbor in component_nodes) == 1]
+            start_node = endpoints[0] if endpoints else min(component_nodes)
+            
+            path, prev, curr = [start_node], -1, start_node
+            while len(path) < len(component_nodes):
+                found = False
+                for neighbor in adj[curr]:
+                    if neighbor in component_nodes and neighbor != prev:
+                        path.append(neighbor)
+                        prev, curr = curr, neighbor
+                        found = True
+                        break
+                if not found: break
+
+            road_items = []
+            for idx in range(len(path) - 1):
+                u, v = path[idx], path[idx+1]
+                edge = tuple(sorted((u, v)))
+                if edge in edge_map:
+                    data = edge_map[edge]
+                    direction = -1
+                    if data['target_node'] != -1: direction = 1 if data['target_node'] == v else 0
+                    road_items.append((data['item'], direction))
+            all_roads.append(road_items)
+    return all_roads
+
+def analyze_road_network(solution, game_tiles):
+    all_roads = _build_all_roads(solution, game_tiles)
+    
+    agg_stats = {
+        "total_roads": len(all_roads), "aliens_caught": 0, "max_aliens_running_towards_agent": 0,
+        "eat_it_up": 0, "max_agents_on_one_road": 0, "max_aliens_on_one_road": 0,
+        "max_aliens_between_two_agents": 0, "total_food_chain_sets": 0
+    }
+    
+    road_lengths = []
+    for road in all_roads:
+        road_lengths.append(len(road))
+        road_stats = _process_road_for_stats(road)
+        if not road_stats: continue
+
+        agg_stats["aliens_caught"] += road_stats.get('aliens_caught', 0)
+        agg_stats["total_food_chain_sets"] += road_stats.get('food_chain_sets', 0)
+        agg_stats["eat_it_up"] = max(agg_stats["eat_it_up"], road_stats.get('eat_it_up', 0))
+        agg_stats["max_aliens_running_towards_agent"] = max(agg_stats["max_aliens_running_towards_agent"], road_stats.get('abduction_total', 0))
+        agg_stats["max_agents_on_one_road"] = max(agg_stats["max_agents_on_one_road"], road_stats.get('num_agents', 0))
+        agg_stats["max_aliens_on_one_road"] = max(agg_stats["max_aliens_on_one_road"], road_stats.get('num_aliens', 0))
+        agg_stats["max_aliens_between_two_agents"] = max(agg_stats["max_aliens_between_two_agents"], road_stats.get('max_aliens_between_two_agents', 0))
+
+    if road_lengths:
+        agg_stats["longest_road_size"] = max(road_lengths) if road_lengths else 0
+        agg_stats["max_roads_of_same_length"] = Counter(road_lengths).most_common(1)[0][1] if road_lengths else 0
+    else:
+        agg_stats.update({"longest_road_size": 0, "max_roads_of_same_length": 0})
+        
+    return agg_stats
+
+# =============================================================================
+# SECTION 3: FUNÇÕES DE ADJACÊNCIA
+# =============================================================================
+
+def find_largest_component_size(grid_properties, property_key):
+    max_size, visited = 0, set()
+    for r in range(3):
+        for c in range(3):
+            if grid_properties[r][c].get(property_key, 0) > 0 and (r, c) not in visited:
+                current_size, q = 0, deque([(r, c)])
                 visited.add((r, c))
-
                 while q:
-                    # --- MODIFIED: Use popleft() which is faster than pop(0) ---
-                    curr_r, curr_c = q.popleft() 
+                    curr_r, curr_c = q.popleft()
                     current_size += 1
-
                     for dr, dc in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                         next_r, next_c = curr_r + dr, curr_c + dc
-                        
-                        if 0 <= next_r < 3 and 0 <= next_c < 3 and \
-                           (next_r, next_c) not in visited and \
-                           grid_properties[next_r][next_c][property_key] > 0:
-                            
+                        if 0 <= next_r < 3 and 0 <= next_c < 3 and (next_r, next_c) not in visited and \
+                           grid_properties[next_r][next_c].get(property_key, 0) > 0:
                             visited.add((next_r, next_c))
                             q.append((next_r, next_c))
-                
                 max_size = max(max_size, current_size)
-
     return max_size
 
 def calculate_adjacency_stats(solution, game_tiles):
-    """
-    Calculates statistics based on the largest connected group for each property.
-    """
-    # Step 1: Pre-process the grid to create a simple property map.
-    # This part is the same as before.
     grid_properties = [[{} for _ in range(3)] for _ in range(3)]
     for r in range(3):
         for c in range(3):
@@ -58,101 +271,37 @@ def calculate_adjacency_stats(solution, game_tiles):
             grid_properties[r][c] = {
                 'dogs': tile_data.get('dogs', 0),
                 'houses': tile_data.get('houses', 0),
-                'aliens': tile_data.get('aliens', 0),
-                'citizens': tile_data.get('boys', 0) + tile_data.get('girls', 0)
+                'citizens': tile_data.get('boys', 0) + tile_data.get('girls', 0),
+                'is_safe': 1 if tile_data.get('aliens', 0) == 0 else 0
             }
-
-    # Step 2: Call the component-finding function for each property
-    stats = {
-        "largest_dog_group": find_largest_component_size(grid_properties, 'dogs'),
-        "largest_house_group": find_largest_component_size(grid_properties, 'houses'),
-        "largest_alien_group": find_largest_component_size(grid_properties, 'aliens'),
-        "largest_citizen_group": find_largest_component_size(grid_properties, 'citizens'),
-    }
-
-    return stats
-
-
-def analyze_road_network(solution, game_tiles):
-    # ... (this function is unchanged)
-    adj = {i: [] for i in range(24)}
-    for r in range(3):
-        for c in range(3):
-            (piece, side, orientation) = solution[r][c]
-            position = r * 3 + c
-            
-            for road in game_tiles[piece][side]["roads"]:
-                local_conn1, local_conn2 = road['connection']
-                global_id1 = TILE_NODES[position][(local_conn1 + orientation) % 4]
-                global_id2 = TILE_NODES[position][(local_conn2 + orientation) % 4]
-                
-                adj[global_id1].append(global_id2)
-                adj[global_id2].append(global_id1)
-
-    visited = set()
-    road_lengths = []
-    
-    for i in range(24):
-        if i not in visited and adj[i]:
-            component_nodes = set()
-            q = [i]
-            visited.add(i)
-            
-            head = 0
-            while head < len(q):
-                u = q[head]
-                head += 1
-                component_nodes.add(u)
-                for v in adj[u]:
-                    if v not in visited:
-                        visited.add(v)
-                        q.append(v)
-            
-            edge_sum_in_component = sum(len(adj[node]) for node in component_nodes)
-            road_length = edge_sum_in_component // 2
-            road_lengths.append(road_length)
-            
-    if not road_lengths:
-        return {
-            "total_roads": 0,
-            "longest_road_size": 0,
-            "max_roads_of_same_length": 0
-        }
-    
-    road_length_counts = Counter(road_lengths)
     
     return {
-        "total_roads": len(road_lengths),
-        "longest_road_size": max(road_lengths),
-        "max_roads_of_same_length": max(road_length_counts.values())
+        "largest_dog_group": find_largest_component_size(grid_properties, 'dogs'),
+        "largest_house_group": find_largest_component_size(grid_properties, 'houses'),
+        "largest_citizen_group": find_largest_component_size(grid_properties, 'citizens'),
+        "largest_safe_zone_size": find_largest_component_size(grid_properties, 'is_safe') # ALTERADO
     }
 
+# =============================================================================
+# SECTION 4: FUNÇÃO PRINCIPAL AGREGADORA
+# =============================================================================
 
 def calculate_solution_stats(solution, game_tiles):
-    """
-    Calculates all aggregate statistics for a complete 3x3 tiling solution.
-    """
-    # Part 1: Simple counting stats
     stats = {f"total_{key}": 0 for key in STAT_KEYS}
     stats["total_tiles_without_roads"] = 0
-
     for r in range(3):
         for c in range(3):
             (piece, side, _) = solution[r][c]
             tile_data = game_tiles[piece][side]
-            
             for key in STAT_KEYS:
-                if key in tile_data:
-                    stats[f"total_{key}"] += tile_data[key]
-            
-            if not tile_data["roads"]:
-                stats["total_tiles_without_roads"] += 1
+                if key in tile_data: stats[f"total_{key}"] += tile_data[key]
+            if not tile_data.get("roads"): stats["total_tiles_without_roads"] += 1
     
-    # Part 2: Road network analysis
     road_stats = analyze_road_network(solution, game_tiles)
+    captures_from_layout = road_stats.pop('aliens_caught', 0)
+    stats['total_captured_aliens'] += captures_from_layout
     stats.update(road_stats)
-
-    # --- Part 3: NEW - Adjacency analysis ---
+    
     adjacency_stats = calculate_adjacency_stats(solution, game_tiles)
     stats.update(adjacency_stats)
                     
