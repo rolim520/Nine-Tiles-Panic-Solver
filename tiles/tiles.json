@@ -10,6 +10,7 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 1,
             "roads": [
                 {
                     "connection": [2,3],
@@ -28,6 +29,7 @@
             "aliens": 0,
             "agents": 1,
             "captured_aliens": 0,
+            "curves": 2,
             "roads": [
                 {
                     "connection": [0,3],
@@ -53,6 +55,7 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 0,
             "roads": [
                 {
                     "connection": [0,2],
@@ -76,6 +79,7 @@
             "aliens": 1,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 2,
             "roads": [
                 {
                     "connection": [0,1],
@@ -101,6 +105,7 @@
             "aliens": 1,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 0,
             "roads": [
                 {
                     "connection": [0,2],
@@ -119,6 +124,7 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 2,
             "roads": [
                 {
                     "connection": [0,1],
@@ -144,6 +150,7 @@
             "aliens": 0,
             "agents": 1,
             "captured_aliens": 0,
+            "curves": 0,
             "roads": [
                 {
                     "connection": [0,2],
@@ -167,6 +174,7 @@
             "aliens": 1,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 1,
             "roads": [
                 {
                     "connection": [2,3],
@@ -187,6 +195,7 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 2,
             "roads": [
                 {
                     "connection": [0,3],
@@ -210,6 +219,7 @@
             "aliens": 0,
             "agents": 1,
             "captured_aliens": 1,
+            "curves": 0,
             "roads": []
         }
     ],
@@ -224,6 +234,7 @@
             "aliens": 0,
             "agents": 1,
             "captured_aliens": 0,
+            "curves": 0,
             "roads": [
                 {
                     "connection": [0,2],
@@ -242,6 +253,7 @@
             "aliens": 1,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 0,
             "roads": [
                 {
                     "connection": [0,2],
@@ -267,6 +279,7 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 0,
             "roads": [
                 {
                     "connection": [1,3],
@@ -285,6 +298,7 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 0,
             "roads": []
         }
     ],
@@ -299,6 +313,7 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 0,
             "roads": [
                 {
                     "connection": [1,3],
@@ -317,6 +332,7 @@
             "aliens": 0,
             "agents": 1,
             "captured_aliens": 0,
+            "curves": 1,
             "roads": [
                 {
                     "connection": [2,3],
@@ -337,6 +353,7 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 0,
             "roads": []
         },
         {
@@ -349,6 +366,7 @@
             "aliens": 0,
             "agents": 0,
             "captured_aliens": 0,
+            "curves": 1,
             "roads": [
                 {
                     "connection": [1,2],
