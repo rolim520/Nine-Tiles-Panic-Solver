@@ -43,10 +43,11 @@ def solution_to_flat_dict(solution):
 
 class SolutionWriter:
     """Manages writing solutions to a Parquet file in chunks."""
-    def __init__(self, file_path, chunk_size=100_000):
-        # ... (the rest of the class code is identical)
+    def __init__(self, file_path, chunk_size=100_000, silent=False, worker_id=None):
         self.file_path = file_path
         self.chunk_size = chunk_size
+        self.silent = silent
+        self.worker_id = worker_id
         self.writer = None
         self._solutions_chunk = []
         self.total_solutions_found = 0
@@ -60,9 +61,10 @@ class SolutionWriter:
             self._write_chunk()
         if self.writer:
             self.writer.close()
-        print("\n-------------------------------------------")
-        print(f"✅ Finished! Found and saved a total of {self.total_solutions_found} solutions.")
-        print("-------------------------------------------")
+        if not self.silent:
+            print("\n-------------------------------------------")
+            print(f"✅ Finished! Found and saved a total of {self.total_solutions_found} solutions.")
+            print("-------------------------------------------")
 
     def _write_chunk(self):
         table = pa.Table.from_pylist(self._solutions_chunk)
@@ -70,7 +72,13 @@ class SolutionWriter:
             self.writer = pq.ParquetWriter(self.file_path, table.schema)
         self.writer.write_table(table)
         self._solutions_chunk = []
-        print(f" ... Wrote chunk. Total solutions so far: {self.total_solutions_found}")
+        # Create a prefix for the log message
+        log_prefix = f"[Worker #{self.worker_id}]" if self.worker_id is not None else ""
+        
+        # Modify the print statement to be more informative
+        print(f"{log_prefix} ... Wrote chunk. Total solutions for this worker: {self.total_solutions_found}")
+        
+        self._solutions_chunk = []
         
     def process_solutions(self, solution_generator):
         for solution in solution_generator:
