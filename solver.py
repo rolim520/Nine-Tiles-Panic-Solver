@@ -1,53 +1,48 @@
 # solver.py
 
-from constants import TILE_NODES
+from constants import TILE_NODES, NUM_NODES
 
-def have_road_cycles(tiling, game_tiles):
-    """
-    Checks for road cycles in a given tiling using a Union-Find algorithm.
-    """
-    parent = list(range(24)) # NUM_NODES could be used here
+class UnionFind:
+    """A class for the Union-Find data structure with cycle detection."""
+    def __init__(self, size):
+        # Initialize with each node as its own parent.
+        self.parent = list(range(size))
 
-    def find(i):
-        if parent[i] == i:
+    def find(self, i):
+        """Finds the root of element i with path compression."""
+        if self.parent[i] == i:
             return i
-        parent[i] = find(parent[i])
-        return parent[i]
+        # Path compression for efficiency
+        self.parent[i] = self.find(self.parent[i])
+        return self.parent[i]
 
-    def union(i, j):
-        root_i = find(i)
-        root_j = find(j)
+    def union(self, i, j):
+        """
+        Connects i and j. Returns True if a cycle is formed, False otherwise.
+        """
+        root_i = self.find(i)
+        root_j = self.find(j)
         if root_i != root_j:
-            parent[root_i] = root_j
+            self.parent[root_i] = root_j
+            return False  # No cycle created
+        return True  # A cycle was detected!
 
-    for r in range(3):
-        for c in range(3):
-            (piece, side, orientation) = tiling[r][c]
-            piece_position = r * 3 + c
-            
-            for road in game_tiles[piece][side]["roads"]:
-                local_conn1, local_conn2 = road['connection']
-                
-                # Use the imported TILE_NODES constant
-                global_id1 = TILE_NODES[piece_position][(local_conn1 + orientation) % 4]
-                global_id2 = TILE_NODES[piece_position][(local_conn2 + orientation) % 4]
-
-                if find(global_id1) == find(global_id2):
-                    return True  # Cycle detected
-                
-                union(global_id1, global_id2)
-
-    return False
+    def copy(self):
+        """
+        Returns a new UnionFind instance with a copy of the current parent state.
+        This is crucial for non-destructive updates during recursion.
+        """
+        new_uf = UnionFind(len(self.parent))
+        new_uf.parent = self.parent[:]  # Create a shallow copy
+        return new_uf
 
 def connects(required_connections, tile_connections):
-    # ... (identical code)
     for i in range(4):
         if required_connections[i] != -1 and required_connections[i] != tile_connections[i]:
             return False
     return True
 
 def generate_tile_connections(game_tiles):
-    # ... (identical code, but now takes game_tiles as an argument)
     tile_connections = dict()
     for piece in range(9):
         for side in range(2):
@@ -60,10 +55,9 @@ def generate_tile_connections(game_tiles):
     return tile_connections
 
 def find_candidate_tiles(tiling, position, available_pieces, tile_connections):
-    # ... (identical code, but now takes tile_connections as an argument)
     row, col = position // 3, position % 3
     required_connections = [-1, -1, -1, -1]
-    # ... (rest of the function)
+
     if row-1 >= 0 and tiling[row-1][col] != ():
         if tile_connections[tiling[row-1][col]][3] == 1:
             required_connections[1] = 1
@@ -93,23 +87,45 @@ def find_candidate_tiles(tiling, position, available_pieces, tile_connections):
                     candidates.append((piece, side, orientation))
     return candidates
 
-
-def find_valid_tilings_generator(tiling, position, available_pieces, game_tiles, tile_connections):
-    # ... (identical code, but now takes game_tiles and tile_connections as arguments)
+def find_valid_tilings_generator(tiling, position, available_pieces, game_tiles, tile_connections, uf_structure):
     if position == 9:
-        if not have_road_cycles(tiling, game_tiles):
-            yield [row[:] for row in tiling]
+        yield [row[:] for row in tiling]
         return
 
     row, col = position // 3, position % 3
 
-    if tiling[row][col] != ():
-        yield from find_valid_tilings_generator(tiling, position + 1, available_pieces, game_tiles, tile_connections)
+    if tiling[row][col]:
+        yield from find_valid_tilings_generator(tiling, position + 1, available_pieces, game_tiles, tile_connections, uf_structure)
     else:
         candidates = find_candidate_tiles(tiling, position, available_pieces, tile_connections)
+        
         for candidate in candidates:
+            # 1. Create a copy of the UnionFind structure to work with.
+            uf_copy = uf_structure.copy()
+            cycle_found = False
+
+            # 2. Apply unions for the new candidate tile using the copy's methods.
+            (piece, side, orientation) = candidate
+            for road in game_tiles[piece][side]["roads"]:
+                local_conn1, local_conn2 = road['connection']
+                global_id1 = TILE_NODES[position][(local_conn1 + orientation) % 4]
+                global_id2 = TILE_NODES[position][(local_conn2 + orientation) % 4]
+
+                # The logic is now a clean method call.
+                if uf_copy.union(global_id1, global_id2):
+                    cycle_found = True
+                    break
+            
+            # 3. If a cycle was found, prune this branch.
+            if cycle_found:
+                continue
+
+            # 4. If valid, place the tile and recurse with the updated copy.
             tiling[row][col] = candidate
             available_pieces.remove(candidate[0])
-            yield from find_valid_tilings_generator(tiling, position + 1, available_pieces, game_tiles, tile_connections)
+            
+            yield from find_valid_tilings_generator(tiling, position + 1, available_pieces, game_tiles, tile_connections, uf_copy)
+            
+            # Backtrack (no change needed here).
             available_pieces.add(candidate[0])
             tiling[row][col] = ()

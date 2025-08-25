@@ -7,7 +7,6 @@ import re
 
 # --- Configuration ---
 IMAGE_DIR = os.path.join('tiles', 'piece_images')
-# --- MODIFIED: Specify the directory instead of a single file ---
 SOLUTION_DIR = 'generated_solutions'
 WINDOW_SIZE = 800
 GRID_DIM = 3
@@ -111,7 +110,6 @@ def draw_solution(screen, pq_file, solution_index, image_cache):
     pygame.display.flip()
 
 def main(initial_index):
-    # --- MODIFIED: Dynamically find the file to open ---
     parquet_file_path, error = find_latest_solution_file(SOLUTION_DIR)
     
     if error:
