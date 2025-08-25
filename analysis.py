@@ -64,7 +64,7 @@ def analyze_road_network(solution, game_tiles):
         return {
             "total_roads": 0,
             "longest_road_size": 0,
-            "max_roads_of_same_length": 0 # New stat name
+            "max_same_length_roads": 0 # New stat name
         }
     
     road_length_counts = Counter(road_lengths)
@@ -73,7 +73,7 @@ def analyze_road_network(solution, game_tiles):
         "total_roads": len(road_lengths),
         "longest_road_size": max(road_lengths),
         # --- MODIFIED: Find the highest value from the counts instead of returning the dict ---
-        "max_roads_of_same_length": max(road_length_counts.values())
+        "max_same_length_roads": max(road_length_counts.values())
     }
 
 
