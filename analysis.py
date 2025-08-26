@@ -87,68 +87,74 @@ def _calculate_captured_indices(agents, aliens):
                 captured_indices.add(target['pos'])
     return captured_indices
 
-def _calculate_abduction_total(aliens, agent_indices):
+def _calculate_max_aliens_running_towards_agent(aliens, agent_indices):
     if not agent_indices: return 0
-    count = 0
+    count_right = 0
+    count_left = 0
     for alien in aliens:
         alien_pos, alien_dir = alien['pos'], alien['dir']
-        if (alien_dir == 1 and any(a_idx > alien_pos for a_idx in agent_indices)) or \
-           (alien_dir == 0 and any(a_idx < alien_pos for a_idx in agent_indices)):
-            count += 1
-    return count
+        if (alien_dir == 1 and any(a_idx > alien_pos for a_idx in agent_indices)):
+            count_right += 1
+        elif (alien_dir == 0 and any(a_idx < alien_pos for a_idx in agent_indices)):
+            count_left += 1
+    return max(count_right, count_left)
 
-def _calculate_eat_it_up_optimized(all_items, captured_indices):
+def _calculate_max_hamburgers_in_front_of_alien(road, aliens, captured_indices):
     max_hamburgers = 0
-    uncaptured_aliens = [a for a in all_items['alien'] if a['pos'] not in captured_indices]
+    uncaptured_aliens = [a for a in aliens if a['pos'] not in captured_indices]
 
     for alien in uncaptured_aliens:
         alien_pos, alien_dir = alien['pos'], alien['dir']
-        hamburgers_in_sight = 0
-        
-        potential_hamburgers = []
-        if alien_dir == 1:
-            potential_hamburgers = [h for h in all_items['hamburger'] if h['pos'] > alien_pos]
-        elif alien_dir == 0:
-            potential_hamburgers = [h for h in all_items['hamburger'] if h['pos'] < alien_pos]
+        current_hamburgers = 0
 
-        for ham in potential_hamburgers:
-            is_blocked = False
-            slice_start, slice_end = sorted((alien_pos, ham['pos']))
-            slice_start += 1
-            
-            for blocker in [a for a in all_items['alien'] if slice_start <= a['pos'] < slice_end]:
-                blocker_pos, blocker_dir = blocker['pos'], blocker['dir']
-                is_looking_at_ham = (blocker_dir == 1 and blocker_pos < ham['pos']) or \
-                                    (blocker_dir == 0 and blocker_pos > ham['pos'])
-                if is_looking_at_ham:
-                    agent_slice_start, agent_slice_end = sorted((alien_pos, blocker_pos))
-                    agent_slice_start += 1
-                    has_negating_agent = any(
-                        agent_slice_start <= agent['pos'] < agent_slice_end for agent in all_items['agent'])
-                    if not has_negating_agent:
-                        is_blocked = True
-                        break
-            if not is_blocked:
-                hamburgers_in_sight += 1
-        max_hamburgers = max(max_hamburgers, hamburgers_in_sight)
+        if alien_dir == 1:  # Olhando para frente
+            for i in range(alien_pos + 1, len(road)):
+                item, item_dir = road[i]
+                if item == "hamburger":
+                    current_hamburgers += 1
+                # A visão é bloqueada por outro alien não capturado olhando na mesma direção
+                elif item == "alien" and item_dir == 1 and i not in captured_indices:
+                    break
+        elif alien_dir == 0: # Olhando para trás
+            for i in range(alien_pos - 1, -1, -1):
+                item, item_dir = road[i]
+                if item == "hamburger":
+                    current_hamburgers += 1
+                # A visão é bloqueada por outro alien não capturado olhando na mesma direção
+                elif item == "alien" and item_dir == 0 and i not in captured_indices:
+                    break
+        max_hamburgers = max(current_hamburgers, max_hamburgers)
+        
     return max_hamburgers
 
-def _calculate_max_aliens_between_agents(all_items):
+
+def _calculate_max_aliens_between_agents(road, agents):
+
     max_aliens = 0
-    agents = sorted(all_items['agent'], key=lambda x: x['pos'])
-    if len(agents) < 2:
-        return 0
-        
-    for i in range(len(agents) - 1):
-        agent_A = agents[i]
-        agent_B = agents[i+1]
-        
-        if agent_A['dir'] == 1 and agent_B['dir'] == 0:
-            slice_start = agent_A['pos'] + 1
-            slice_end = agent_B['pos']
-            aliens_in_slice = sum(1 for alien in all_items['alien'] if slice_start <= alien['pos'] < slice_end)
-            max_aliens = max(max_aliens, aliens_in_slice)
+    for agent in agents:
+        agent_pos, agent_dir = agent['pos'], agent['dir']
+        current_aliens = 0
+        if agent_dir == 1:
+            for i in range(agent_pos + 1, len(road)):
+                item, item_dir = road[i]
+                if item == "alien":
+                    current_aliens += 1
+                elif item == "agent":
+                    if item_dir == 1:
+                        current_aliens = 0
+                    break
+        if agent_dir == 0:    
+            for i in range(agent_pos - 1, -1, -1):
+                item, item_dir = road[i]
+                if item == "alien":
+                    current_aliens += 1
+                elif item == "agent":
+                    if item_dir == 0:
+                        current_aliens = 0
+                    break
+        max_aliens = max(current_aliens, max_aliens)
     return max_aliens
+
 
 # =============================================================================
 # SECTION 2: PROCESSAMENTO CENTRALIZADO E CONSTRUÇÃO DE ESTRADAS
@@ -164,17 +170,15 @@ def _process_road_for_stats(road):
 
     agent_indices = {agent['pos'] for agent in all_items['agent']}
     captured_indices = _calculate_captured_indices(all_items['agent'], all_items['alien'])
-    
-    food_chain_sets = _find_sets_in_sequence(road, ['agent', 'alien', 'hamburger'])
 
     return {
         'num_agents': len(all_items['agent']),
         'num_aliens': len(all_items['alien']),
         'aliens_caught': len(captured_indices),
-        'abduction_total': _calculate_abduction_total(all_items['alien'], agent_indices),
-        'eat_it_up': _calculate_eat_it_up_optimized(all_items, captured_indices),
-        'max_aliens_between_two_agents': _calculate_max_aliens_between_agents(all_items),
-        'food_chain_sets': food_chain_sets,
+        'max_aliens_running_towards_agent': _calculate_max_aliens_running_towards_agent(all_items['alien'], agent_indices),
+        'max_hamburgers_in_front_of_alien': _calculate_max_hamburgers_in_front_of_alien(road, all_items['alien'], captured_indices),
+        'max_aliens_between_two_agents': _calculate_max_aliens_between_agents(road, all_items['agent']),
+        'food_chain_sets': _find_sets_in_sequence(road, ['agent', 'alien', 'hamburger']),
     }
 
 def _build_all_roads(solution, game_tiles):
@@ -234,7 +238,7 @@ def analyze_road_network(solution, game_tiles):
     
     agg_stats = {
         "total_roads": len(all_roads), "aliens_caught": 0, "max_aliens_running_towards_agent": 0,
-        "eat_it_up": 0, "max_agents_on_one_road": 0, "max_aliens_on_one_road": 0,
+        "max_hamburgers_in_front_of_alien": 0, "max_agents_on_one_road": 0, "max_aliens_on_one_road": 0,
         "max_aliens_between_two_agents": 0, "total_food_chain_sets": 0
     }
     
@@ -246,8 +250,8 @@ def analyze_road_network(solution, game_tiles):
 
         agg_stats["aliens_caught"] += road_stats.get('aliens_caught', 0)
         agg_stats["total_food_chain_sets"] += road_stats.get('food_chain_sets', 0)
-        agg_stats["eat_it_up"] = max(agg_stats["eat_it_up"], road_stats.get('eat_it_up', 0))
-        agg_stats["max_aliens_running_towards_agent"] = max(agg_stats["max_aliens_running_towards_agent"], road_stats.get('abduction_total', 0))
+        agg_stats["max_hamburgers_in_front_of_alien"] = max(agg_stats["max_hamburgers_in_front_of_alien"], road_stats.get('max_hamburgers_in_front_of_alien', 0))
+        agg_stats["max_aliens_running_towards_agent"] = max(agg_stats["max_aliens_running_towards_agent"], road_stats.get('max_aliens_running_towards_agent', 0))
         agg_stats["max_agents_on_one_road"] = max(agg_stats["max_agents_on_one_road"], road_stats.get('num_agents', 0))
         agg_stats["max_aliens_on_one_road"] = max(agg_stats["max_aliens_on_one_road"], road_stats.get('num_aliens', 0))
         agg_stats["max_aliens_between_two_agents"] = max(agg_stats["max_aliens_between_two_agents"], road_stats.get('max_aliens_between_two_agents', 0))
