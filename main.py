@@ -76,37 +76,7 @@ def merge_parquet_files(temp_dir, final_output_path):
     except Exception as e:
         print(f"❌ Ocorreu um erro durante a mesclagem com o DuckDB: {e}")
 
-def create_duckdb_from_parquet(parquet_path, db_path):
-    """
-    Creates a DuckDB database by importing a Parquet file.
-    """
-    print(f"\n--- Creating DuckDB database at '{db_path}' ---")
-    
-    if os.path.exists(db_path):
-        print(f"Database file '{db_path}' already exists. Skipping creation.")
-        return
-
-    try:
-        con = duckdb.connect(db_path)
-
-        print(f"Importing data from '{parquet_path}'...")
-        con.execute(f"CREATE TABLE solutions AS SELECT * FROM read_parquet('{parquet_path}');")
-        print("Import complete.")
-
-        # Verification step
-        parquet_rows = con.execute(f"SELECT COUNT(*) FROM read_parquet('{parquet_path}')").fetchone()[0]
-        db_rows = con.execute("SELECT COUNT(*) FROM solutions").fetchone()[0]
-
-        if parquet_rows != db_rows:
-            print(f"❌ Verification failed! Row counts do not match ({parquet_rows} vs {db_rows}).")
-            con.close()
-            return
-
-        print(f"✅ Verification successful. {db_rows:,} rows imported.")
-        con.close()
-
-    except Exception as e:
-        print(f"❌ An error occurred during DuckDB creation: {e}")
+# The create_duckdb_from_parquet function has been removed
 
 def main():
     # 1. Define the output directory and get the unique, indexed file path
@@ -181,13 +151,6 @@ def main():
     total_solutions = sum(results)
     final_parquet_path = get_next_filename("generated_solutions", "tiling_solutions")
     merge_parquet_files(TEMP_DIR, final_parquet_path)
-
-    # --- 5. NEW: AUTOMATICALLY CREATE THE DUCKDB DATABASE ---
-    # This step runs only if the merge was successful and the Parquet file was created.
-    if os.path.exists(final_parquet_path):
-        # Create a matching database name, e.g., 'tiling_solutions_1.duckdb'
-        db_path = os.path.splitext(final_parquet_path)[0] + '.duckdb'
-        create_duckdb_from_parquet(final_parquet_path, db_path)
 
     print("\n-------------------------------------------")
     print(f"✅ All tasks complete. Found a total of {total_solutions:,} solutions.")
