@@ -1,0 +1,184 @@
+[
+    {
+        "number": 1,
+        "name": "Capture",
+        "description": "Most Aliens caught",
+        "key": "total_captured_aliens",
+        "type": "max"
+    },
+    {
+        "number": 2,
+        "name": "Surrounded",
+        "description": "Most Aliens stuck between 2 Agents",
+        "key": "max_aliens_between_two_agents",
+        "type": "max"
+    },
+    {
+        "number": 3,
+        "name": "Dog Roundup",
+        "description": "Most adjacent tiles with dogs",
+        "key": "largest_dog_group",
+        "type": "max"
+    },
+    {
+        "number": 4,
+        "name": "Finish Quickly!",
+        "description": "Line up the tiles and complete the city quickly",
+        "key": "",
+        "type": ""
+    },
+    {
+        "number": 5,
+        "name": "The Longest Road",
+        "description": "The city with the longest road",
+        "key": "longest_road_size",
+        "type": "max"
+    },
+    {
+        "number": 6,
+        "name": "Curvy",
+        "description": "The city with the most curves",
+        "key": "total_curves",
+        "type": "max"
+    },
+    {
+        "number": 7,
+        "name": "Real Estate Day",
+        "description": "The city with the most houses",
+        "key": "total_houses",
+        "type": "max"
+    },
+    {
+        "number": 8,
+        "name": "Hungry Aliens",
+        "description": "The largest amount of [Aliens x Hamburgers] in the city ",
+        "key": "aliens_times_hamburgers",
+        "type": "max"
+    },
+    {
+        "number": 9,
+        "name": "Agents",
+        "description": "The city with the most Agents",
+        "key": "total_agents",
+        "type": "max"
+    },
+    {
+        "number": 10,
+        "name": "Many Roads",
+        "description": "The city with the most roads",
+        "key": "total_roads",
+        "type": "max"
+    },
+    {
+        "number": 11,
+        "name": "No Roads",
+        "description": "The city with the most tiles without roads",
+        "key": "total_tiles_without_roads",
+        "type": "max"
+    },
+    {
+        "number": 12,
+        "name": "Life with Dogs",
+        "description": "The city with the most dogs",
+        "key": "total_dogs",
+        "type": "max"
+    },
+    {
+        "number": 13,
+        "name": "Same Length Roads",
+        "description": "Most roads of the same length",
+        "key": "max_roads_of_same_length",
+        "type": "max"
+    },
+    {
+        "number": 14,
+        "name": "The Safest Road",
+        "description": "Most Agents on 1 road",
+        "key": "max_agents_on_one_road",
+        "type": "max"
+    },
+    {
+        "number": 15,
+        "name": "Few Roads",
+        "description": "Least amount of roads",
+        "key": "total_roads",
+        "type": "min"
+    },
+    {
+        "number": 16,
+        "name": "Eat It Up",
+        "description": "Most hamburgers in front of 1 Alien",
+        "key": "max_hamburgers_in_front_of_alien",
+        "type": "max"
+    },
+    {
+        "number": 17,
+        "name": "Extraterrestrial",
+        "description": "The largest amount of [UFOs x Aliens] in the city",
+        "key": "aliens_times_ufos",
+        "type": "max"
+    },
+    {
+        "number": 18,
+        "name": "Abduction",
+        "description": "Most Aliens running towards an Agent on 1 Road",
+        "key": "max_aliens_running_towards_agent",
+        "type": "max"
+    },
+    {
+        "number": 19,
+        "name": "Alien Power",
+        "description": "Most Aliens on 1 road",
+        "key": "max_aliens_on_one_road",
+        "type": "max"
+    },
+    {
+        "number": 20,
+        "name": "The Food Chain",
+        "description": "The largest amount of [Agent+Alien+Hamburger] sets in the city",
+        "key": "total_food_chain_sets",
+        "type": "max"
+    },
+    {
+        "number": 21,
+        "name": "Safe Zone",
+        "description": "Most adjacent tiles without Aliens",
+        "key": "largest_safe_zone_size",
+        "type": "max"
+    },
+    {
+        "number": 22,
+        "name": "Citizen Area",
+        "description": "Most adjacent tiles with Citizens",
+        "key": "largest_citizen_group",
+        "type": "max"
+    },
+    {
+        "number": 23,
+        "name": "Residential Area",
+        "description": "Most adjacent tiles with houses",
+        "key": "largest_house_group",
+        "type": "max"
+    },
+    {
+        "number": 24,
+        "name": "Walk the Dog",
+        "description": "The largest amount of [Citizen+Dog] pairs in the city",
+        "key": "citizen_dog_pairs",
+        "type": "max"
+    },
+    {
+        "number": 25,
+        "name": "Ladies Night",
+        "description": "Most girls",
+        "key": "total_girls",
+        "type": "max"
+    },
+    {
+        "number": 26,
+        "name": "Boy Scouts",
+        "description": "Most boys",
+        "key": "total_boys",
+        "type": "max"
+    }
+]

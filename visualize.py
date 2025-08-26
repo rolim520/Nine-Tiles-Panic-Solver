@@ -5,7 +5,7 @@ import sys
 import re
 
 # --- Configuração ---
-IMAGE_DIR = os.path.join('tiles', 'piece_images')
+IMAGE_DIR = os.path.join('tiles', 'tile_images')
 SOLUTION_DIR = 'generated_solutions'
 # Janela mais larga para acomodar o painel de estatísticas
 WINDOW_WIDTH = 1200
