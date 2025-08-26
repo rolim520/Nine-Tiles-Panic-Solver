@@ -83,9 +83,10 @@ def draw_stats(screen, solution_data, font, header_font):
     stats_panel.blit(header_text, (20, 20))
 
     # Filtra para obter apenas as colunas de estatísticas (não as de layout)
+    # CORREÇÃO AQUI: 'orientation_{r}{c}' mudou para 'orient_{r}{c}'
     excluded_cols = [f'piece_{r}{c}' for r in range(3) for c in range(3)] + \
                     [f'side_{r}{c}' for r in range(3) for c in range(3)] + \
-                    [f'orientation_{r}{c}' for r in range(3) for c in range(3)]
+                    [f'orient_{r}{c}' for r in range(3) for c in range(3)]
     
     y_offset = 70
     for col_name, value in solution_data.items():
@@ -103,11 +104,9 @@ def draw_solution(screen, db_connection, solution_index, image_cache, fonts):
     """
     Busca uma solução do banco de dados e a desenha, incluindo suas estatísticas.
     """
-    # Busca o número total de soluções (se necessário, pode ser feito uma vez no início)
     num_solutions = db_connection.execute('SELECT COUNT(*) FROM solutions').fetchone()[0]
     solution_index = max(0, min(solution_index, num_solutions - 1))
 
-    # Busca a solução específica e suas estatísticas do banco de dados
     query = f"SELECT * FROM solutions LIMIT 1 OFFSET {solution_index}"
     solution_df = db_connection.execute(query).fetchdf()
     
@@ -116,17 +115,16 @@ def draw_solution(screen, db_connection, solution_index, image_cache, fonts):
 
     solution_row = solution_df.iloc[0]
 
-    # --- Desenho ---
     pygame.display.set_caption(f"Solução #{solution_index} de {num_solutions - 1}")
-    screen.fill((20, 20, 20)) # Fundo geral
+    screen.fill((20, 20, 20)) 
     tile_size = GRID_SIZE // GRID_DIM
 
-    # Desenha a grade de peças
     for r in range(GRID_DIM):
         for c in range(GRID_DIM):
             piece = solution_row[f'piece_{r}{c}']
             side = solution_row[f'side_{r}{c}']
-            orientation = solution_row[f'orientation_{r}{c}']
+            # CORREÇÃO AQUI: 'orientation_{r}{c}' mudou para 'orient_{r}{c}'
+            orientation = solution_row[f'orient_{r}{c}']
             scaled_tile = image_cache.get((side, piece))
 
             if scaled_tile:
@@ -134,13 +132,11 @@ def draw_solution(screen, db_connection, solution_index, image_cache, fonts):
                 rotated_tile = pygame.transform.rotate(scaled_tile, rotation_angle)
                 screen.blit(rotated_tile, (c * tile_size, r * tile_size))
 
-    # Desenha as linhas da grade
     for i in range(1, GRID_DIM):
         pygame.draw.line(screen, GRID_LINE_COLOR, (i * tile_size, 0), (i * tile_size, GRID_SIZE), GRID_LINE_WIDTH)
         pygame.draw.line(screen, GRID_LINE_COLOR, (0, i * tile_size), (GRID_SIZE, i * tile_size), GRID_LINE_WIDTH)
     pygame.draw.rect(screen, GRID_LINE_COLOR, (0, 0, GRID_SIZE, GRID_SIZE), GRID_LINE_WIDTH)
 
-    # NOVO: Desenha o painel de estatísticas
     draw_stats(screen, solution_row, fonts['stats'], fonts['header'])
 
     pygame.display.flip()
@@ -153,7 +149,6 @@ def main(initial_index):
         return
 
     try:
-        # Conecta-se ao banco de dados DuckDB em modo de apenas leitura
         db_con = duckdb.connect(database=db_file_path, read_only=True)
         num_solutions = db_con.execute('SELECT COUNT(*) FROM solutions').fetchone()[0]
         print(f"✅ Conectado a '{db_file_path}' com {num_solutions:,} soluções.")
@@ -165,7 +160,6 @@ def main(initial_index):
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     clock = pygame.time.Clock()
     
-    # Carrega as fontes
     try:
         stats_font = pygame.font.Font(None, STATS_FONT_SIZE)
         header_font = pygame.font.Font(None, STATS_HEADER_FONT_SIZE)
@@ -175,7 +169,6 @@ def main(initial_index):
         stats_font = pygame.font.SysFont(None, STATS_FONT_SIZE)
         header_font = pygame.font.SysFont(None, STATS_HEADER_FONT_SIZE)
         fonts = {'stats': stats_font, 'header': header_font}
-
 
     tile_size = GRID_SIZE // GRID_DIM
     image_cache = preload_images(tile_size)
