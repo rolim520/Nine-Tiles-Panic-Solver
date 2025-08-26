@@ -9,60 +9,82 @@ STAT_KEYS = [
 ]
 
 # =============================================================================
-# SECTION 1: FUNÇÕES DE ESTATÍSTICAS INDIVIDUAIS (OTIMIZADAS)
+# SECTION 1: FUNÇÕES DE ESTATÍSTICAS INDIVIDUAIS
 # =============================================================================
 
 def _find_sets_in_sequence(road, sequence):
     """
-    Função auxiliar para encontrar o número máximo de sequências não sobrepostas.
-    (Reintegrada)
+    Calcula o numero de ocorrencias da sequencia na ordem normal e na ordem reversa
+    na road. Permite strings vazias entre os elementos da sequência
     """
-    items_only = [item for item, _ in road]
-    used_indices, num_sets = set(), 0
+    if not sequence:
+        return 0
+
+    items = [item for item, _ in road]
+    num_sets = 0
+    used_indices = set()
+
+    seq_idx = 0
+    current_set_indices = []
+
+    for i, item in enumerate(items):
+        if item == "":
+            continue
+        if item == sequence[seq_idx]:
+            current_set_indices.append(i)
+            seq_idx += 1
+        else:
+            current_set_indices = []
+            if item == sequence[0]:
+                seq_idx = 1
+                current_set_indices.append(i)
+            else:
+                seq_idx = 0
+        if seq_idx == len(sequence):
+            num_sets += 1
+            used_indices.update(current_set_indices)
+            seq_idx = 0
+            current_set_indices = []
     
-    for i in range(len(items_only)):
-        if items_only[i] == sequence[0] and i not in used_indices:
-            found_middle_idx = -1
-            for j in range(i + 1, len(items_only)):
-                if j in used_indices: continue
-                if items_only[j] in sequence and items_only[j] != sequence[1]: break
-                if items_only[j] == sequence[1]:
-                    found_middle_idx = j
-                    break
-            
-            if found_middle_idx != -1:
-                found_last_idx = -1
-                for k in range(found_middle_idx + 1, len(items_only)):
-                    if k in used_indices: continue
-                    if items_only[k] in sequence and items_only[k] != sequence[2]: break
-                    if items_only[k] == sequence[2]:
-                        found_last_idx = k
-                        break
-                
-                if found_last_idx != -1:
-                    num_sets += 1
-                    used_indices.add(i)
-                    used_indices.add(found_middle_idx)
-                    used_indices.add(found_last_idx)
+    seq_idx = 0
+    reversed_sequence = sequence[::-1]
+    for i, item in list(enumerate(items)):
+        if item == "":
+            continue
+        if item == reversed_sequence[seq_idx] and i not in used_indices:
+            seq_idx += 1
+        else:
+            if item == reversed_sequence[0] and i not in used_indices:
+                seq_idx = 1
+            else:
+                seq_idx = 0
+        if seq_idx == len(reversed_sequence):
+            num_sets += 1
+            seq_idx = 0
+    
     return num_sets
 
 def _calculate_captured_indices(agents, aliens):
+    """
+    Identifica os índices de aliens capturados.
+    """
     captured_indices = set()
-    for agent in agents:
+    sorted_agents = sorted(agents, key=lambda a: a['pos'])
+
+    for agent in sorted_agents:
         agent_pos, agent_dir = agent['pos'], agent['dir']
         potential_targets = []
-        if agent_dir == 1:
-            potential_targets = [a for a in aliens if a['pos'] > agent_pos]
+        if agent_dir == 1: # Olhando para frente
+            potential_targets = [a for a in aliens if a['pos'] > agent_pos and a['pos'] not in captured_indices]
             if potential_targets:
                 target = min(potential_targets, key=lambda a: a['pos'])
-                if target['pos'] not in captured_indices:
-                    captured_indices.add(target['pos'])
-        elif agent_dir == 0:
-            potential_targets = [a for a in aliens if a['pos'] < agent_pos]
+                captured_indices.add(target['pos'])
+
+        elif agent_dir == 0: # Olhando para trás
+            potential_targets = [a for a in aliens if a['pos'] < agent_pos and a['pos'] not in captured_indices]
             if potential_targets:
                 target = max(potential_targets, key=lambda a: a['pos'])
-                if target['pos'] not in captured_indices:
-                    captured_indices.add(target['pos'])
+                captured_indices.add(target['pos'])
     return captured_indices
 
 def _calculate_abduction_total(aliens, agent_indices):
@@ -143,8 +165,7 @@ def _process_road_for_stats(road):
     agent_indices = {agent['pos'] for agent in all_items['agent']}
     captured_indices = _calculate_captured_indices(all_items['agent'], all_items['alien'])
     
-    fwd_sets = _find_sets_in_sequence(road, ['agent', 'alien', 'hamburger'])
-    rev_sets = _find_sets_in_sequence(road, ['hamburger', 'alien', 'agent'])
+    food_chain_sets = _find_sets_in_sequence(road, ['agent', 'alien', 'hamburger'])
 
     return {
         'num_agents': len(all_items['agent']),
@@ -153,7 +174,7 @@ def _process_road_for_stats(road):
         'abduction_total': _calculate_abduction_total(all_items['alien'], agent_indices),
         'eat_it_up': _calculate_eat_it_up_optimized(all_items, captured_indices),
         'max_aliens_between_two_agents': _calculate_max_aliens_between_agents(all_items),
-        'food_chain_sets': max(fwd_sets, rev_sets),
+        'food_chain_sets': food_chain_sets,
     }
 
 def _build_all_roads(solution, game_tiles):
@@ -298,8 +319,7 @@ def calculate_solution_stats(solution, game_tiles):
             if not tile_data.get("roads"): stats["total_tiles_without_roads"] += 1
     
     road_stats = analyze_road_network(solution, game_tiles)
-    captures_from_layout = road_stats.pop('aliens_caught', 0)
-    stats['total_captured_aliens'] += captures_from_layout
+    stats['total_captured_aliens'] += road_stats.pop('aliens_caught', 0)
     stats.update(road_stats)
     
     adjacency_stats = calculate_adjacency_stats(solution, game_tiles)
