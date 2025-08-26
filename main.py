@@ -115,7 +115,7 @@ def main():
     file_path = get_next_filename(OUTPUT_DIR, base_name="tiling_solutions")
     
     # Load data and perform pre-computation
-    with open('tiles/tiles.json', 'r', encoding='utf-8') as file:
+    with open('game/tiles/tiles.json', 'r', encoding='utf-8') as file:
         game_tiles = json.load(file)
     tile_connections = generate_tile_connections(game_tiles)
 
