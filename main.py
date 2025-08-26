@@ -78,7 +78,7 @@ def merge_parquet_files(temp_dir, final_output_path):
 
 def create_duckdb_from_parquet(parquet_path, db_path):
     """
-    Creates a DuckDB database by importing a Parquet file and adds initial indexes.
+    Creates a DuckDB database by importing a Parquet file.
     """
     print(f"\n--- Creating DuckDB database at '{db_path}' ---")
     
@@ -103,19 +103,7 @@ def create_duckdb_from_parquet(parquet_path, db_path):
             return
 
         print(f"✅ Verification successful. {db_rows:,} rows imported.")
-
-        # Create a few essential indexes to get started
-        print("Creating initial indexes on key columns...")
-        key_stat_columns = [
-            'total_houses', 'total_dogs', 'longest_road_size', 'largest_citizen_group'
-        ]
-        for col in key_stat_columns:
-            print(f"  - Indexing '{col}'...")
-            con.execute(f"CREATE INDEX IF NOT EXISTS idx_{col} ON solutions ({col})")
-        
-        print("✅ Initial indexes created.")
         con.close()
-        print(f"--- DuckDB database is ready for analysis. ---")
 
     except Exception as e:
         print(f"❌ An error occurred during DuckDB creation: {e}")
