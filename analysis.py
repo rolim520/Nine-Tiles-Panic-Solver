@@ -323,7 +323,7 @@ def calculate_solution_stats(solution, game_tiles):
             if not tile_data.get("roads"): stats["total_tiles_without_roads"] += 1
     
     road_stats = analyze_road_network(solution, game_tiles)
-    stats['total_captured_aliens'] += road_stats.pop('aliens_caught', 0)
+    stats["total_captured_aliens"] += road_stats.pop("aliens_caught", 0)
     stats.update(road_stats)
 
     stats["aliens_times_ufos"] = (stats["total_aliens"] - stats["total_captured_aliens"]) * stats["total_ufos"]

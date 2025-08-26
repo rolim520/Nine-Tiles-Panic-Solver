@@ -121,7 +121,6 @@ class SolutionWriter:
 
         # Logging and cleanup
         log_prefix = f"[Worker #{self.worker_id}]" if self.worker_id is not None else ""
-        self.total_solutions_found += len(self._solutions_chunk)
         print(f"{log_prefix} ... Wrote chunk. Total solutions for this worker: {self.total_solutions_found}")
         self._solutions_chunk = []
         
