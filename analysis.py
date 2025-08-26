@@ -325,7 +325,11 @@ def calculate_solution_stats(solution, game_tiles):
     road_stats = analyze_road_network(solution, game_tiles)
     stats['total_captured_aliens'] += road_stats.pop('aliens_caught', 0)
     stats.update(road_stats)
-    
+
+    stats["aliens_times_ufos"] = (stats["total_aliens"] - stats["total_captured_aliens"]) * stats["total_ufos"]
+    stats["aliens_times_hamburgers"] = (stats["total_aliens"] - stats["total_captured_aliens"]) * stats["total_hamburgers"]
+    stats["citizen_dog_pairs"] = min((stats["total_boys"]+stats["total_girls"]), stats["total_dogs"])
+
     adjacency_stats = calculate_adjacency_stats(solution, game_tiles)
     stats.update(adjacency_stats)
                     
