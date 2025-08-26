@@ -119,7 +119,6 @@ def main():
         game_tiles = json.load(file)
     tile_connections = generate_tile_connections(game_tiles)
 
-    """
     # --- MODIFIED: 'start_index' has been removed from the configurations ---
     search_configs = [
         {
@@ -136,15 +135,6 @@ def main():
             "name": "Piece 0 at board center",
             "start_pos": (1, 1),
             "candidates": [(0, 0, 0), (0, 1, 0)]
-        }
-    ]
-    """
-    # --- MODIFIED: 'start_index' has been removed from the configurations ---
-    search_configs = [
-        {
-            "name": "small test",
-            "start_pos": (0, 0),
-            "candidates": [(0, 0, 0)]
         }
     ]
 

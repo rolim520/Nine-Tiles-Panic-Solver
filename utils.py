@@ -1,6 +1,7 @@
 # utils.py
 import os
 import re
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from analysis import calculate_solution_stats
@@ -66,19 +67,62 @@ class SolutionWriter:
             print("\n-------------------------------------------")
             print(f"✅ Finished! Found and saved a total of {self.total_solutions_found} solutions.")
             print("-------------------------------------------")
+    
+    def _get_schema(self):
+        """Creates the data type schema for the DataFrame."""
+        if hasattr(self, '_schema') and self._schema:
+            return self._schema
+
+        # Define the types for all columns
+        schema = {}
+        # 1. Grid layout columns (piece, side, orient)
+        for i in range(9):
+            schema[f'piece_{i:02d}'] = 'uint8'
+            schema[f'side_{i:02d}'] = 'uint8'
+            schema[f'orient_{i:02d}'] = 'uint8'
+
+        # 2. Statistical columns (totals, etc.)
+        stat_keys = [
+            "total_houses", "total_ufos", "total_girls", "total_boys", "total_dogs",
+            "total_hamburgers", "total_aliens", "total_agents", "total_captured_aliens",
+            "total_curves", "total_tiles_without_roads", "longest_road", "num_closed_roads",
+            "largest_dog_group", "largest_house_group", "largest_citizen_group",
+            "largest_safe_zone_size"
+        ]
+        for key in stat_keys:
+             # Use a 8-bit integer (0-255), which is more than enough for counts.
+            schema[key] = 'uint8'
+
+        self._schema = schema
+        return self._schema
 
     def _write_chunk(self):
-        table = pa.Table.from_pylist(self._solutions_chunk)
+        """Converts the chunk to a DataFrame, applies the schema, and writes to Parquet."""
+        if not self._solutions_chunk:
+            return
+
+        # 1. Convert list of dicts to a Pandas DataFrame
+        df = pd.DataFrame(self._solutions_chunk)
+
+        # 2. Get the predefined schema and apply it
+        schema = self._get_schema()
+        # Ensure all columns exist in the DataFrame before trying to set the type
+        # This handles cases where some stat columns might not be present in all chunks
+        applicable_schema = {col: dtype for col, dtype in schema.items() if col in df.columns}
+        df = df.astype(applicable_schema)
+
+        # 3. Convert the typed DataFrame to a PyArrow Table
+        table = pa.Table.from_pandas(df, preserve_index=False)
+
+        # 4. Write to Parquet file
         if self.writer is None:
             self.writer = pq.ParquetWriter(self.file_path, table.schema)
         self.writer.write_table(table)
-        self._solutions_chunk = []
-        # Create a prefix for the log message
+
+        # Logging and cleanup
         log_prefix = f"[Worker #{self.worker_id}]" if self.worker_id is not None else ""
-        
-        # Modify the print statement to be more informative
+        self.total_solutions_found += len(self._solutions_chunk)
         print(f"{log_prefix} ... Wrote chunk. Total solutions for this worker: {self.total_solutions_found}")
-        
         self._solutions_chunk = []
         
     def process_solutions(self, solution_generator, game_tiles):
