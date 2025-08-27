@@ -43,16 +43,13 @@ def solve_for_task(task_config):
 
 def merge_parquet_files(temp_dir, final_output_path):
     """
-    Encontra todos os arquivos parquet temporários, os mescla em um único arquivo usando o DuckDB e limpa os arquivos temporários.
-    Este método é extremamente eficiente em termos de memória.
+    Finds all temporary parquet files, merges them into a single file using DuckDB,
+    and cleans up the temporary files. This method is memory-efficient.
     """
     print("\nMesclando resultados de todos os workers usando DuckDB...")
     
-    # Usa um padrão glob para que o DuckDB encontre todos os arquivos no diretório
     temp_files_pattern = os.path.join(temp_dir, "*.parquet")
 
-    # O comando SQL para copiar todos os arquivos correspondentes para um novo arquivo Parquet.
-    # O DuckDB gerencia toda a memória nos bastidores.
     query = f"""
     COPY (SELECT * FROM read_parquet('{temp_files_pattern}'))
     TO '{final_output_path}'
@@ -60,23 +57,33 @@ def merge_parquet_files(temp_dir, final_output_path):
     """
     
     try:
-        # Verifica se há arquivos para mesclar
         temp_files_list = glob.glob(temp_files_pattern)
         if not temp_files_list:
             print("Nenhum arquivo temporário encontrado para mesclar.")
             return
 
-        duckdb.execute(query)
+        # --- MODIFICAÇÃO AQUI ---
+        # 1. Conecta a um banco de dados em memória
+        con = duckdb.connect()
         
-        # Limpa os arquivos temporários
+        # 2. Define um limite de RAM. Ex: '16GB'. Ajuste conforme sua RAM disponível.
+        #    Use um valor seguro, como 50-70% da sua RAM total.
+        con.execute("PRAGMA memory_limit='16GB';")
+        
+        # 3. Executa a consulta de mesclagem usando a conexão configurada
+        print("  -> Iniciando a mesclagem com limite de memória. Isso pode levar algum tempo...")
+        con.execute(query)
+        
+        # 4. Fecha a conexão
+        con.close()
+        # --- FIM DA MODIFICAÇÃO ---
+        
         for f in temp_files_list:
             os.remove(f)
         os.rmdir(temp_dir)
         print(f"✅ Arquivos mesclados em '{final_output_path}' e arquivos temporários limpos.")
     except Exception as e:
         print(f"❌ Ocorreu um erro durante a mesclagem com o DuckDB: {e}")
-
-# The create_duckdb_from_parquet function has been removed
 
 def main():
     # 1. Define the output directory and get the unique, indexed file path
