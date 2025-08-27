@@ -2,25 +2,31 @@ import duckdb
 import itertools
 import json
 import os
-from PIL import Image # Importa a biblioteca Pillow
+import re # Adicionado import
+from PIL import Image
 
 # =============================================================================
-# CONFIGURAÇÃO
+# CONFIGURAÇÃO (SEÇÃO MODIFICADA)
 # =============================================================================
-# Altere estes caminhos para corresponder aos seus arquivos
-SOLUTIONS_PARQUET_PATH = 'solutions_0.parquet'
+# A variável SOLUTIONS_PARQUET_PATH foi removida. O caminho será encontrado dinamicamente.
 GAME_CARDS_PATH = 'game/cards/cards.json'
-TILE_IMAGES_DIR = 'game/tiles/tile_images' # Novo: Caminho para as imagens dos tiles
+TILE_IMAGES_DIR = 'game/tiles/tile_images'
+SOURCE_SOLUTIONS_DIR = 'generated_solutions' # Diretório onde o Parquet final está
 
-# Arquivos de banco de dados que serão gerados por este script
-MAIN_DB_PATH = 'generated_solutions/solutions.duckdb'
-PERCENTILES_DB_PATH = 'generated_solutions/percentiles.duckdb'
-BEST_SOLUTIONS_DB_PATH = 'generated_solutions/best_solutions.duckdb'
+# --- Novos Diretórios de Saída ---
+SOLUTIONS_OUTPUT_DIR = 'solutions'
+DATABASES_OUTPUT_DIR = 'databases'
+# ------------------------------------
 
-# Novo: Pasta raiz para os mapas das soluções
-MAPS_OUTPUT_DIR = 'generated_solutions/maps'
+# Caminhos dos arquivos de banco de dados
+MAIN_DB_PATH = os.path.join(DATABASES_OUTPUT_DIR, 'solutions.duckdb')
+PERCENTILES_DB_PATH = os.path.join(DATABASES_OUTPUT_DIR, 'percentiles.duckdb')
+BEST_SOLUTIONS_DB_PATH = os.path.join(DATABASES_OUTPUT_DIR, 'best_solutions.duckdb')
 
-# Lista de colunas de estatísticas para calcular os percentis.
+# A pasta raiz para os mapas
+MAPS_OUTPUT_DIR = SOLUTIONS_OUTPUT_DIR
+
+# ... (STAT_COLUMNS e caches permanecem inalterados) ...
 STAT_COLUMNS = [
     "total_houses", "total_ufos", "total_girls", "total_boys", "total_dogs",
     "total_hamburgers", "total_aliens", "total_agents", "total_captured_aliens",
@@ -32,96 +38,116 @@ STAT_COLUMNS = [
     "largest_dog_group", "largest_house_group", "largest_citizen_group",
     "largest_safe_zone_size"
 ]
-
-# Cache para imagens de tiles carregadas para evitar recarregar
 TILE_IMAGE_CACHE = {}
+RESIZED_IMAGE_CACHE = {}
 
 # =============================================================================
 # FUNÇÕES AUXILIARES DE IMAGEM (VERSÃO CORRIGIDA)
 # =============================================================================
 
+def find_latest_solution_file(directory, base_name="tiling_solutions", extension="parquet"):
+    """
+    Encontra o arquivo de solução com o maior índice em um diretório.
+    """
+    if not os.path.isdir(directory):
+        return None, f"Diretório de soluções '{directory}' não encontrado."
+
+    pattern = re.compile(rf"{base_name}_(\d+)\.{extension}")
+    
+    highest_index = -1
+    latest_file_path = None
+    
+    for filename in os.listdir(directory):
+        match = pattern.match(filename)
+        if match:
+            index = int(match.group(1))
+            if index > highest_index:
+                highest_index = index
+                latest_file_path = os.path.join(directory, filename)
+    
+    if latest_file_path:
+        return latest_file_path, None
+    else:
+        return None, f"Nenhum arquivo de solução (ex: '{base_name}_1.{extension}') encontrado em '{directory}'."
+
+# ... (sanitize_folder_name, load_and_rotate_tile_image, generate_tiling_image, etc. permanecem inalterados) ...
 def sanitize_folder_name(name):
-    """Limpa uma string para que seja segura para usar como nome de pasta."""
-    # Substitui espaços e hífens por underscores
     name = name.replace(' ', '_').replace('-', '_')
-    # Remove qualquer caractere que não seja alfanumérico ou underscore
     return "".join(c for c in name if c.isalnum() or c == '_')
 
 def load_and_rotate_tile_image(piece, side, orientation, tile_size):
-    """Carrega, REDIMENSIONA, rotaciona e armazena em cache a imagem de um tile."""
-    # A ordem 'side', 'piece' está correta conforme a última correção
-    base_image_path = os.path.join(TILE_IMAGES_DIR, f"{int(side)}_{int(piece)}.png") #
-    
+    base_image_path = os.path.join(TILE_IMAGES_DIR, f"{int(side)}_{int(piece)}.png")
     cache_key = (piece, side, orientation, tile_size)
-
-    if cache_key in TILE_IMAGE_CACHE:
-        return TILE_IMAGE_CACHE[cache_key]
-
+    if cache_key in TILE_IMAGE_CACHE: return TILE_IMAGE_CACHE[cache_key]
     try:
-        img = Image.open(base_image_path).convert("RGBA") #
-        
-        resized_img = img.resize((tile_size, tile_size), resample=Image.LANCZOS) #
-        
-        # --- CORREÇÃO APLICADA AQUI ---
-        # Retorna ao ângulo negativo para forçar a rotação no sentido HORÁRIO.
-        angle = orientation * -90 #
-        # --------------------------------
-        
-        rotated_img = resized_img.rotate(angle, expand=False, resample=Image.BICUBIC) #
-        
-        TILE_IMAGE_CACHE[cache_key] = rotated_img #
+        img = Image.open(base_image_path).convert("RGBA")
+        resized_img = img.resize((tile_size, tile_size), resample=Image.LANCZOS)
+        angle = orientation * -90
+        rotated_img = resized_img.rotate(angle, expand=False, resample=Image.BICUBIC)
+        TILE_IMAGE_CACHE[cache_key] = rotated_img
         return rotated_img
-    except FileNotFoundError:
-        print(f"ERRO: Imagem do tile não encontrada: {base_image_path}") #
-        return Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 255)) #
     except Exception as e:
-        print(f"ERRO ao carregar/redimensionar/rotacionar tile (p:{piece}, s:{side}) com orientação {orientation}: {e}") #
-        return Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 255)) #
-
+        print(f"ERRO ao processar tile (p:{piece}, s:{side}): {e}")
+        return Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 255))
 
 def generate_tiling_image(solution_row, output_path):
-    """
-    Gera a imagem de um tabuleiro 3x3 a partir de uma linha de solução.
-    """
-    TILE_SIZE = 128 
+    TILE_SIZE = 128
     BOARD_SIZE = TILE_SIZE * 3
-
     board_image = Image.new('RGBA', (BOARD_SIZE, BOARD_SIZE), (0, 0, 0, 0))
-
     for r in range(3):
         for c in range(3):
             pos_str = f"{r}{c}"
             piece = solution_row[f"piece_{pos_str}"]
             side = solution_row[f"side_{pos_str}"]
             orientation = solution_row[f"orient_{pos_str}"]
-
-            # --- CORREÇÃO APLICADA AQUI: Passa o TILE_SIZE para a função auxiliar ---
             tile_img = load_and_rotate_tile_image(piece, side, orientation, TILE_SIZE)
-            
             board_image.paste(tile_img, (c * TILE_SIZE, r * TILE_SIZE), tile_img)
-            
     board_image.save(output_path, optimize=True, quality=85)
+
+def preload_resized_images(tile_size):
+    print("🚀 Pré-carregando e redimensionando todas as imagens base dos tiles...")
+    for side in range(2):
+        for piece in range(9):
+            cache_key = (piece, side)
+            try:
+                base_image_path = os.path.join(TILE_IMAGES_DIR, f"{int(side)}_{int(piece)}.png")
+                img = Image.open(base_image_path).convert("RGBA")
+                resized_img = img.resize((tile_size, tile_size), resample=Image.LANCZOS)
+                RESIZED_IMAGE_CACHE[cache_key] = resized_img
+            except Exception as e:
+                print(f"ERRO durante o pré-carregamento do tile (p:{piece}, s:{side}): {e}")
+                RESIZED_IMAGE_CACHE[cache_key] = None
+    print("✅ Cache de imagens redimensionadas criado.")
 
 # =============================================================================
 # FUNÇÃO 1: CRIAR O BANCO DE DADOS PRINCIPAL
 # =============================================================================
-def create_db_from_parquet():
+def create_db_from_parquet(parquet_file_path): # Recebe o caminho como argumento
     """Ingere o arquivo Parquet em um banco de dados DuckDB para processamento rápido."""
-    if os.path.exists(MAIN_DB_PATH):
-        print(f"✅ Banco de dados principal '{MAIN_DB_PATH}' já existe. Pulando a ingestão.")
-        return
-
-    print(f"🚀 Iniciando a ingestão de '{SOLUTIONS_PARQUET_PATH}' para '{MAIN_DB_PATH}'...")
-    print("Isso pode levar um tempo considerável dependendo do tamanho do arquivo.")
+    os.makedirs(DATABASES_OUTPUT_DIR, exist_ok=True)
     
     con = duckdb.connect(MAIN_DB_PATH)
-    con.execute(f"""
-        CREATE TABLE solutions AS
-        SELECT ROW_NUMBER() OVER () AS solution_id, *
-        FROM read_parquet('{SOLUTIONS_PARQUET_PATH}');
-    """)
+    tables = con.execute("SHOW TABLES;").fetchdf()
+    
+    if 'solutions' in tables['name'].values:
+        print(f"✅ Tabela 'solutions' já existe em '{MAIN_DB_PATH}'. Pulando a ingestão.")
+        con.close()
+        return
+
+    print(f"🚀 Iniciando a ingestão de '{parquet_file_path}' para '{MAIN_DB_PATH}'...")
+    print("Isso pode levar um tempo considerável dependendo do tamanho do arquivo.")
+    
+    try:
+        con.execute(f"""
+            CREATE TABLE solutions AS
+            SELECT ROW_NUMBER() OVER () AS solution_id, *
+            FROM read_parquet('{parquet_file_path}');
+        """)
+        print(f"✅ Banco de dados principal e tabela 'solutions' criados com sucesso.")
+    except Exception as e:
+        print(f"❌ ERRO durante a ingestão do arquivo Parquet: {e}")
+    
     con.close()
-    print(f"✅ Banco de dados principal '{MAIN_DB_PATH}' criado com sucesso.")
 
 # =============================================================================
 # FUNÇÃO 2: CALCULAR PERCENTIS E FREQUÊNCIAS
@@ -420,6 +446,17 @@ def main():
     print("INICIANDO SCRIPT DE PÓS-PROCESSAMENTO DE SOLUÇÕES")
     print("=" * 50)
 
+    # --- MODIFICADO: Encontrar o arquivo de soluções mais recente ---
+    print(f"Procurando pelo arquivo de soluções Parquet mais recente em '{SOURCE_SOLUTIONS_DIR}'...")
+    parquet_file, error = find_latest_solution_file(SOURCE_SOLUTIONS_DIR, extension="parquet")
+
+    if error:
+        print(f"❌ ERRO: {error}")
+        return
+    
+    print(f"✅ Arquivo de soluções encontrado: '{parquet_file}'")
+    # ----------------------------------------------------------------
+
     try:
         with open(GAME_CARDS_PATH, 'r') as f:
             game_cards = json.load(f)
@@ -431,25 +468,23 @@ def main():
         print(f"ERRO: O arquivo de cartões '{GAME_CARDS_PATH}' não é um JSON válido.")
         return
 
-    # Passo 1: Garantir que o banco de dados principal exista
-    create_db_from_parquet()
+    # Passo 1: Passa o caminho do arquivo encontrado
+    create_db_from_parquet(parquet_file)
 
-    # Passo 2: Calcular percentis (necessário para o cálculo de scores)
+    # Passo 2: Calcular percentis
     stat_percentiles_data = calculate_percentiles()
     
     # Passo 3: Pré-calcular todos os scores
     precompute_all_scores(stat_percentiles_data, game_cards)
 
     # Passo 4: Encontrar e salvar as melhores soluções E gerar os mapas
-    # Renomeada para refletir a nova funcionalidade
     find_best_solutions_and_generate_maps(game_cards)
 
+    # Mensagens finais atualizadas
     print("\n" + "=" * 50)
     print("✅ Processo concluído com sucesso!")
-    print(f"  -> DB principal de trabalho: '{MAIN_DB_PATH}'")
-    print(f"  -> Percentis estão em:      '{PERCENTILES_DB_PATH}'")
-    print(f"  -> Melhores soluções (DB):  '{BEST_SOLUTIONS_DB_PATH}'")
-    print(f"  -> Mapas gerados em:        '{MAPS_OUTPUT_DIR}'")
+    print(f"  -> Bancos de dados de análise salvos em: '{DATABASES_OUTPUT_DIR}/'")
+    print(f"  -> Mapas das melhores soluções salvos em: '{SOLUTIONS_OUTPUT_DIR}/'")
     print("=" * 50)
 
 
