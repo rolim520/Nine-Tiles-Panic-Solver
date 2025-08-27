@@ -130,6 +130,9 @@ def _calculate_max_hamburgers_in_front_of_alien(road, aliens, captured_indices):
 
 def _calculate_max_aliens_between_agents(road, agents):
 
+    if len(agents) < 2:
+        return 0
+
     max_aliens = 0
     for agent in agents:
         agent_pos, agent_dir = agent['pos'], agent['dir']
