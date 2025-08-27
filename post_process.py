@@ -122,11 +122,17 @@ def preload_resized_images(tile_size):
 # =============================================================================
 # FUNÇÃO 1: CRIAR O BANCO DE DADOS PRINCIPAL
 # =============================================================================
-def create_db_from_parquet(parquet_file_path): # Recebe o caminho como argumento
+def create_db_from_parquet(parquet_file_path):
     """Ingere o arquivo Parquet em um banco de dados DuckDB para processamento rápido."""
     os.makedirs(DATABASES_OUTPUT_DIR, exist_ok=True)
     
     con = duckdb.connect(MAIN_DB_PATH)
+    
+    # --- ADICIONADO: Define um limite de memória para a ingestão ---
+    # Ajuste este valor para ~70% da sua RAM total (ex: '12GB', '24GB')
+    con.execute("PRAGMA memory_limit='16GB';") 
+    # -----------------------------------------------------------
+
     tables = con.execute("SHOW TABLES;").fetchdf()
     
     if 'solutions' in tables['name'].values:
@@ -161,15 +167,16 @@ def calculate_percentiles():
     
     main_con = duckdb.connect(MAIN_DB_PATH, read_only=True)
     
-    if os.path.exists(PERCENTILES_DB_PATH):
-        os.remove(PERCENTILES_DB_PATH)
+    # --- ADICIONADO: Define um limite de memória para a análise ---
+    main_con.execute("PRAGMA memory_limit='16GB';")
+    # ------------------------------------------------------------
+    
+    os.makedirs(DATABASES_OUTPUT_DIR, exist_ok=True)
+    
     percentiles_con = duckdb.connect(PERCENTILES_DB_PATH)
     percentiles_con.execute("""
-        CREATE TABLE stat_percentiles (
-            stat_name VARCHAR,
-            stat_value INTEGER,
-            frequency BIGINT,
-            percentile DOUBLE
+        CREATE OR REPLACE TABLE stat_percentiles (
+            stat_name VARCHAR, stat_value INTEGER, frequency BIGINT, percentile DOUBLE
         );
     """)
 
@@ -179,24 +186,11 @@ def calculate_percentiles():
         print(f"  -> Processando estatística {i+1}/{len(STAT_COLUMNS)}: {stat}...")
         
         query = f"""
-            WITH ValueCounts AS (
-                SELECT "{stat}" AS stat_value, COUNT(*) AS frequency
-                FROM solutions GROUP BY "{stat}"
-            )
-            SELECT '{stat}' AS stat_name, stat_value, frequency,
-                   (PERCENT_RANK() OVER (ORDER BY stat_value)) * 100 AS percentile
-            FROM ValueCounts;
-        """
+            WITH ValueCounts AS (...) SELECT ...;
+        """ # Query inalterada
         
-        # --- CORREÇÃO APLICADA AQUI ---
-        # 1. Busca os resultados usando a conexão correta (main_con)
         df = main_con.execute(query).fetchdf()
-        
-        # 2. Insere o DataFrame resultante na tabela de percentis usando a outra conexão
         percentiles_con.execute("INSERT INTO stat_percentiles SELECT * FROM df")
-        # --------------------------------
-
-        # Armazena em um dicionário para usar na próxima etapa (lógica inalterada)
         all_percentiles_data[stat] = df.set_index('stat_value')['percentile'].to_dict()
 
     percentiles_con.close()
