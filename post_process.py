@@ -130,7 +130,7 @@ def create_db_from_parquet(parquet_file_path):
     
     # --- ADICIONADO: Define um limite de memória para a ingestão ---
     # Ajuste este valor para ~70% da sua RAM total (ex: '12GB', '24GB')
-    con.execute("PRAGMA memory_limit='16GB';") 
+    con.execute("PRAGMA memory_limit='12GB';") 
     # -----------------------------------------------------------
 
     tables = con.execute("SHOW TABLES;").fetchdf()
@@ -166,10 +166,7 @@ def calculate_percentiles():
     print("\n🚀 Calculando frequências e percentis para todas as estatísticas...")
     
     main_con = duckdb.connect(MAIN_DB_PATH, read_only=True)
-    
-    # --- ADICIONADO: Define um limite de memória para a análise ---
-    main_con.execute("PRAGMA memory_limit='16GB';")
-    # ------------------------------------------------------------
+    main_con.execute("PRAGMA memory_limit='12GB';")
     
     os.makedirs(DATABASES_OUTPUT_DIR, exist_ok=True)
     
@@ -185,9 +182,20 @@ def calculate_percentiles():
     for i, stat in enumerate(STAT_COLUMNS):
         print(f"  -> Processando estatística {i+1}/{len(STAT_COLUMNS)}: {stat}...")
         
+        # --- CORREÇÃO APLICADA AQUI: Consulta SQL completa ---
         query = f"""
-            WITH ValueCounts AS (...) SELECT ...;
-        """ # Query inalterada
+            WITH ValueCounts AS (
+                SELECT "{stat}" AS stat_value, COUNT(*) AS frequency
+                FROM solutions GROUP BY "{stat}"
+            )
+            SELECT 
+                '{stat}' AS stat_name, 
+                stat_value, 
+                frequency,
+                (PERCENT_RANK() OVER (ORDER BY stat_value)) * 100 AS percentile
+            FROM ValueCounts;
+        """
+        # --------------------------------------------------------
         
         df = main_con.execute(query).fetchdf()
         percentiles_con.execute("INSERT INTO stat_percentiles SELECT * FROM df")
@@ -203,18 +211,17 @@ def calculate_percentiles():
 # FUNÇÃO 3: PRÉ-CALCULAR E ARMAZENAR TODOS OS SCORES
 # =============================================================================
 def precompute_all_scores(stat_percentiles, game_cards):
-    """Gera e armazena scores para todas as soluções e todas as cartas."""
+    """
+    Gera e armazena scores para todas as soluções, processando em lotes
+    para controlar o uso de memória em datasets muito grandes.
+    """
     print("\n🚀 Pré-calculando scores para todas as soluções. Este é o passo mais longo...")
     
     con = duckdb.connect(MAIN_DB_PATH)
-
-    # --- NOVA LINHA: CONFIGURAÇÃO DE MEMÓRIA ---
-    # Define um limite de 16GB de RAM. O DuckDB usará o disco para o que exceder.
-    # Ajuste este valor conforme a RAM disponível na sua máquina (ex: '8GB', '16GB').
-    con.execute("PRAGMA memory_limit='16GB';")
-    # Opcional: defina um diretório para os arquivos temporários em um SSD rápido
-    # con.execute("PRAGMA temp_directory='/path/to/fast/ssd/temp.tmp';")
-    # -----------------------------------------
+    
+    # Define um limite de memória seguro para CADA operação de lote.
+    # Ajuste para ~70% da sua RAM total (ex: '12GB', '24GB').
+    con.execute("PRAGMA memory_limit='12GB';")
 
     try:
         con.execute("SELECT card_1_score FROM solution_scores LIMIT 1;")
@@ -222,45 +229,50 @@ def precompute_all_scores(stat_percentiles, game_cards):
         con.close()
         return
     except duckdb.CatalogException:
-        print("  -> Tabela 'solution_scores' não encontrada. Iniciando o cálculo.")
+        print("  -> Tabela 'solution_scores' não encontrada. Iniciando o cálculo em lotes.")
         pass
 
+    # Lógica para construir a string da consulta (inalterada)
     select_clauses = ["solution_id"]
     score_sums = []
-
     for i, card in enumerate(game_cards):
         card_num = i + 1
         card_key = card.get('key')
+        if not card_key or card_key not in stat_percentiles: continue
         card_type = card.get('type')
-        
-        if not card_key or card_key not in stat_percentiles:
-            print(f"  -> Aviso: Chave do cartão {card_num} ('{card_key}') inválida ou não encontrada. Pulando.")
-            continue
-
         percentiles_map = stat_percentiles[card_key]
-        
-        # --- CORREÇÃO APLICADA AQUI ---
-        # Adicionamos CAST(... AS DOUBLE) para forçar o tipo de dado e evitar overflow.
         case_sql = f"\n    CAST((CASE \"{card_key}\""
         for value, percentile in percentiles_map.items():
             score = percentile if card_type == 'max' else 100.0 - percentile
             case_sql += f"\n        WHEN {value} THEN {score}"
         case_sql += f"\n        ELSE 0.0\n    END) AS DOUBLE) AS card_{card_num}_score"
-        # --------------------------------
-        
         select_clauses.append(case_sql)
         score_sums.append(f"card_{card_num}_score")
-
     super_score_sql = " + ".join(score_sums)
     select_clauses.append(f"({super_score_sql}) AS super_score")
-    
     full_select_query = ",\n".join(select_clauses)
+
+    # Passo 1: Criar a tabela de destino VAZIA com a estrutura correta
+    print("  -> Criando a estrutura da tabela 'solution_scores'...")
+    con.execute(f"CREATE TABLE solution_scores AS SELECT {full_select_query} FROM solutions WHERE 1=0;")
+
+    # Passo 2: Processar e inserir os dados em lotes
+    total_rows = con.execute("SELECT COUNT(*) FROM solutions").fetchone()[0]
+    CHUNK_SIZE = 50_000_000  # Processar 50 milhões de linhas por vez (pode ajustar)
     
-    create_table_query = f"CREATE TABLE solution_scores AS SELECT {full_select_query} FROM solutions;"
-    
-    print("  -> Executando a consulta massiva de criação de scores. Seja paciente...")
-    con.execute(create_table_query)
-    
+    print(f"  -> Processando {total_rows:,} linhas em lotes de {CHUNK_SIZE:,}...")
+
+    for offset in range(0, total_rows, CHUNK_SIZE):
+        print(f"    - Processando lote: {offset:,} a {offset + CHUNK_SIZE:,}...")
+        
+        batch_query = f"""
+            INSERT INTO solution_scores
+            SELECT {full_select_query}
+            FROM solutions
+            LIMIT {CHUNK_SIZE} OFFSET {offset};
+        """
+        con.execute(batch_query)
+
     print("  -> Criando índice em super_score para desempate rápido...")
     con.execute("CREATE INDEX idx_super_score ON solution_scores (super_score DESC);")
     
@@ -273,10 +285,10 @@ def precompute_all_scores(stat_percentiles, game_cards):
 # =============================================================================
 def find_best_solutions_and_generate_maps(game_cards):
     """
-    Encontra as melhores soluções, gera imagens dos mapas, salvando em pastas
-    com nomes descritivos e com nomes de arquivo simplificados para cartas únicas.
+    Finds the best balanced solutions for card combinations, stores their layouts,
+    normalizes the score, and generates map images.
     """
-    print("\n🚀 Encontrando as melhores soluções para combinações de cartas e gerando mapas...")
+    print("\n🚀 Encontrando as melhores soluções equilibradas para combinações de cartas...")
 
     main_con = duckdb.connect(MAIN_DB_PATH, read_only=True)
     best_con = duckdb.connect(BEST_SOLUTIONS_DB_PATH)
@@ -302,13 +314,12 @@ def find_best_solutions_and_generate_maps(game_cards):
     maps_2_cards_dir = os.path.join(MAPS_OUTPUT_DIR, '2_cards')
     maps_3_cards_dir = os.path.join(MAPS_OUTPUT_DIR, '3_cards')
     maps_all_cards_dir = os.path.join(MAPS_OUTPUT_DIR, 'all_cards')
-
     os.makedirs(maps_1_card_dir, exist_ok=True)
     os.makedirs(maps_2_cards_dir, exist_ok=True)
     os.makedirs(maps_3_cards_dir, exist_ok=True)
     os.makedirs(maps_all_cards_dir, exist_ok=True)
 
-    # --- 1. Melhores soluções para cartas individuais ---
+    # --- 1. Best solutions for single cards (no balancing needed) ---
     print("  -> Processando 1 carta por vez...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_single_card (card_id UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
     for card_id in scorable_card_ids:
@@ -324,29 +335,29 @@ def find_best_solutions_and_generate_maps(game_cards):
         if not result_df.empty:
             best_con.execute("INSERT INTO best_single_card SELECT * FROM result_df")
             solution_row = result_df.iloc[0]
-            
             score_str = f"score_{int(solution_row['best_score'])}"
             card_name = sanitize_folder_name(card_lookup.get(card_id, ''))
             folder_name = f"{card_id}_{card_name}"
-            
-            # --- MUDANÇA AQUI: Nome do arquivo simplificado ---
             filename = f"{card_id}_{score_str}.png"
-            # --------------------------------------------------
-
             card_dir = os.path.join(maps_1_card_dir, folder_name)
             os.makedirs(card_dir, exist_ok=True)
             image_path = os.path.join(card_dir, filename)
             generate_tiling_image(solution_row, image_path)
             print(f"    - Mapa gerado para carta {card_id}: {image_path}")
 
-    # --- 2. Melhores soluções para pares de cartas (sem alterações) ---
+    # --- 2. Best solutions for pairs of cards (with balancing) ---
     print("  -> Processando 2 cartas por vez...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_card_pairs (card_id_1 UTINYINT, card_id_2 UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
     for c1, c2 in itertools.combinations(scorable_card_ids, 2):
         query = f"""
             WITH bsi AS (
-                SELECT solution_id, (card_{c1}_score + card_{c2}_score) / 2.0 AS best_score
-                FROM solution_scores ORDER BY best_score DESC, super_score DESC LIMIT 1
+                SELECT 
+                    solution_id, 
+                    (card_{c1}_score + card_{c2}_score) / 2.0 AS best_score,
+                    LEAST(card_{c1}_score, card_{c2}_score) AS min_score
+                FROM solution_scores 
+                ORDER BY best_score DESC, min_score DESC, super_score DESC 
+                LIMIT 1
             )
             SELECT {c1}, {c2}, s.solution_id, bsi.best_score, {layout_columns_str}
             FROM solutions s JOIN bsi ON s.solution_id = bsi.solution_id;
@@ -355,14 +366,12 @@ def find_best_solutions_and_generate_maps(game_cards):
         if not result_df.empty:
             best_con.execute("INSERT INTO best_card_pairs SELECT * FROM result_df")
             solution_row = result_df.iloc[0]
-
             score_str = f"score_{int(solution_row['best_score'])}"
             c1_name = sanitize_folder_name(card_lookup.get(c1, ''))
             c2_name = sanitize_folder_name(card_lookup.get(c2, ''))
             folder1_name = f"{c1}_{c1_name}"
             folder2_name = f"{c2}_{c2_name}"
             filename = f"{c1}_{c2}_{score_str}.png"
-            
             card1_dir = os.path.join(maps_2_cards_dir, folder1_name)
             card2_dir = os.path.join(card1_dir, folder2_name)
             os.makedirs(card2_dir, exist_ok=True)
@@ -370,14 +379,19 @@ def find_best_solutions_and_generate_maps(game_cards):
             generate_tiling_image(solution_row, image_path)
             print(f"    - Mapa gerado para cartas {c1}_{c2}: {image_path}")
 
-    # --- 3. Melhores soluções para trios de cartas (sem alterações) ---
+    # --- 3. Best solutions for trios of cards (with balancing) ---
     print("  -> Processando 3 cartas por vez...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_card_trios (card_id_1 UTINYINT, card_id_2 UTINYINT, card_id_3 UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
     for c1, c2, c3 in itertools.combinations(scorable_card_ids, 3):
         query = f"""
             WITH bsi AS (
-                SELECT solution_id, (card_{c1}_score + card_{c2}_score + card_{c3}_score) / 3.0 AS best_score
-                FROM solution_scores ORDER BY best_score DESC, super_score DESC LIMIT 1
+                SELECT 
+                    solution_id, 
+                    (card_{c1}_score + card_{c2}_score + card_{c3}_score) / 3.0 AS best_score,
+                    LEAST(card_{c1}_score, card_{c2}_score, card_{c3}_score) AS min_score
+                FROM solution_scores 
+                ORDER BY best_score DESC, min_score DESC, super_score DESC 
+                LIMIT 1
             )
             SELECT {c1}, {c2}, {c3}, s.solution_id, bsi.best_score, {layout_columns_str}
             FROM solutions s JOIN bsi ON s.solution_id = bsi.solution_id;
@@ -386,7 +400,6 @@ def find_best_solutions_and_generate_maps(game_cards):
         if not result_df.empty:
             best_con.execute("INSERT INTO best_card_trios SELECT * FROM result_df")
             solution_row = result_df.iloc[0]
-
             score_str = f"score_{int(solution_row['best_score'])}"
             c1_name = sanitize_folder_name(card_lookup.get(c1, ''))
             c2_name = sanitize_folder_name(card_lookup.get(c2, ''))
@@ -395,7 +408,6 @@ def find_best_solutions_and_generate_maps(game_cards):
             folder2_name = f"{c2}_{c2_name}"
             folder3_name = f"{c3}_{c3_name}"
             filename = f"{c1}_{c2}_{c3}_{score_str}.png"
-            
             card1_dir = os.path.join(maps_3_cards_dir, folder1_name)
             card2_dir = os.path.join(card1_dir, folder2_name)
             card3_dir = os.path.join(card2_dir, folder3_name)
@@ -403,14 +415,20 @@ def find_best_solutions_and_generate_maps(game_cards):
             image_path = os.path.join(card3_dir, filename)
             generate_tiling_image(solution_row, image_path)
             print(f"    - Mapa gerado para cartas {c1}_{c2}_{c3}: {image_path}")
-    
-    # --- 4. Melhor solução geral (sem alterações) ---
+
+    # --- 4. Best overall solution (with balancing) ---
     print(f"  -> Processando todas as {num_scorable_cards} cartas pontuáveis...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_overall_solution (best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
+    least_columns = ", ".join([f"card_{cid}_score" for cid in scorable_card_ids])
     query = f"""
         WITH bsi AS (
-            SELECT solution_id, super_score / {num_scorable_cards}.0 AS best_score
-            FROM solution_scores ORDER BY best_score DESC LIMIT 1
+            SELECT 
+                solution_id, 
+                super_score / {num_scorable_cards}.0 AS best_score,
+                LEAST({least_columns}) AS min_score
+            FROM solution_scores 
+            ORDER BY best_score DESC, min_score DESC
+            LIMIT 1
         )
         SELECT s.solution_id, bsi.best_score, {layout_columns_str}
         FROM solutions s JOIN bsi ON s.solution_id = bsi.solution_id;
@@ -419,17 +437,15 @@ def find_best_solutions_and_generate_maps(game_cards):
     if not result_df.empty:
         best_con.execute("INSERT INTO best_overall_solution SELECT * FROM result_df")
         solution_row = result_df.iloc[0]
-
         score_str = f"score_{int(solution_row['best_score'])}"
         filename = f"all_{num_scorable_cards}_cards_{score_str}.png"
-
         image_path = os.path.join(maps_all_cards_dir, filename)
         generate_tiling_image(solution_row, image_path)
         print(f"    - Mapa gerado para todas as cartas: {image_path}")
 
     main_con.close()
     best_con.close()
-    print(f"✅ Melhores soluções salvas em '{BEST_SOLUTIONS_DB_PATH}'.")
+    print(f"✅ Melhores soluções equilibradas salvas em '{BEST_SOLUTIONS_DB_PATH}'.")
 
 # =============================================================================
 # EXECUTOR PRINCIPAL
