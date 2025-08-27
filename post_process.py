@@ -40,6 +40,13 @@ TILE_IMAGE_CACHE = {}
 # FUNÇÕES AUXILIARES DE IMAGEM (VERSÃO CORRIGIDA)
 # =============================================================================
 
+def sanitize_folder_name(name):
+    """Limpa uma string para que seja segura para usar como nome de pasta."""
+    # Substitui espaços e hífens por underscores
+    name = name.replace(' ', '_').replace('-', '_')
+    # Remove qualquer caractere que não seja alfanumérico ou underscore
+    return "".join(c for c in name if c.isalnum() or c == '_')
+
 def load_and_rotate_tile_image(piece, side, orientation, tile_size):
     """Carrega, REDIMENSIONA, rotaciona e armazena em cache a imagem de um tile."""
     # A ordem 'side', 'piece' está correta conforme a última correção
@@ -242,19 +249,16 @@ def precompute_all_scores(stat_percentiles, game_cards):
 
 
 # =============================================================================
-# FUNÇÃO 4: ENCONTRAR AS MELHORES SOLUÇÕES COMPLETAS E GERAR MAPAS
+# FUNÇÃO 4: ENCONTRAR AS MELHORES SOLUÇÕES E GERAR MAPAS (VERSÃO COM NOME DE ARQUIVO SIMPLIFICADO)
 # =============================================================================
 def find_best_solutions_and_generate_maps(game_cards):
     """
-    Encontra as melhores soluções, armazena seus layouts completos, normaliza o
-    score e gera as imagens dos mapas, ignorando cartas não pontuáveis.
+    Encontra as melhores soluções, gera imagens dos mapas, salvando em pastas
+    com nomes descritivos e com nomes de arquivo simplificados para cartas únicas.
     """
     print("\n🚀 Encontrando as melhores soluções para combinações de cartas e gerando mapas...")
 
     main_con = duckdb.connect(MAIN_DB_PATH, read_only=True)
-    
-    if os.path.exists(BEST_SOLUTIONS_DB_PATH):
-        os.remove(BEST_SOLUTIONS_DB_PATH)
     best_con = duckdb.connect(BEST_SOLUTIONS_DB_PATH)
 
     # --- Setup ---
@@ -269,14 +273,11 @@ def find_best_solutions_and_generate_maps(game_cards):
     layout_columns_str = ", ".join(layout_columns)
     layout_definitions_str = ", ".join(layout_definitions)
     
-    # --- CORREÇÃO APLICADA AQUI ---
-    # Cria uma lista apenas com os IDs das cartas que podem ser pontuadas (têm uma 'key')
+    card_lookup = {card['number']: card['name'] for card in game_cards}
     scorable_card_ids = [card['number'] for card in game_cards if card.get('key')]
     num_scorable_cards = len(scorable_card_ids)
     print(f"  -> Encontradas {num_scorable_cards} cartas pontuáveis de um total de {len(game_cards)}.")
-    # --------------------------------
     
-    # ... (criação de diretórios inalterada) ...
     maps_1_card_dir = os.path.join(MAPS_OUTPUT_DIR, '1_card')
     maps_2_cards_dir = os.path.join(MAPS_OUTPUT_DIR, '2_cards')
     maps_3_cards_dir = os.path.join(MAPS_OUTPUT_DIR, '3_cards')
@@ -287,102 +288,128 @@ def find_best_solutions_and_generate_maps(game_cards):
     os.makedirs(maps_3_cards_dir, exist_ok=True)
     os.makedirs(maps_all_cards_dir, exist_ok=True)
 
-
     # --- 1. Melhores soluções para cartas individuais ---
     print("  -> Processando 1 carta por vez...")
-    best_con.execute(f"CREATE TABLE best_single_card (card_id UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
-    # CORREÇÃO: Itera apenas sobre os IDs das cartas pontuáveis
+    best_con.execute(f"CREATE OR REPLACE TABLE best_single_card (card_id UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
     for card_id in scorable_card_ids:
         query = f"""
             WITH bsi AS (
-                SELECT solution_id, card_{card_id}_score AS score
-                FROM solution_scores ORDER BY score DESC, super_score DESC LIMIT 1
+                SELECT solution_id, card_{card_id}_score AS best_score
+                FROM solution_scores ORDER BY best_score DESC, super_score DESC LIMIT 1
             )
-            SELECT {card_id}, s.solution_id, bsi.score, {layout_columns_str}
+            SELECT {card_id}, s.solution_id, bsi.best_score, {layout_columns_str}
             FROM solutions s JOIN bsi ON s.solution_id = bsi.solution_id;
         """
         result_df = main_con.execute(query).fetchdf()
         if not result_df.empty:
             best_con.execute("INSERT INTO best_single_card SELECT * FROM result_df")
             solution_row = result_df.iloc[0]
-            card_dir = os.path.join(maps_1_card_dir, str(card_id))
+            
+            score_str = f"score_{int(solution_row['best_score'])}"
+            card_name = sanitize_folder_name(card_lookup.get(card_id, ''))
+            folder_name = f"{card_id}_{card_name}"
+            
+            # --- MUDANÇA AQUI: Nome do arquivo simplificado ---
+            filename = f"{card_id}_{score_str}.png"
+            # --------------------------------------------------
+
+            card_dir = os.path.join(maps_1_card_dir, folder_name)
             os.makedirs(card_dir, exist_ok=True)
-            image_path = os.path.join(card_dir, f"{card_id}.png")
+            image_path = os.path.join(card_dir, filename)
             generate_tiling_image(solution_row, image_path)
             print(f"    - Mapa gerado para carta {card_id}: {image_path}")
 
-    # --- 2. Melhores soluções para pares de cartas ---
+    # --- 2. Melhores soluções para pares de cartas (sem alterações) ---
     print("  -> Processando 2 cartas por vez...")
-    best_con.execute(f"CREATE TABLE best_card_pairs (card_id_1 UTINYINT, card_id_2 UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
-    # CORREÇÃO: Gera combinações apenas com os IDs das cartas pontuáveis
+    best_con.execute(f"CREATE OR REPLACE TABLE best_card_pairs (card_id_1 UTINYINT, card_id_2 UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
     for c1, c2 in itertools.combinations(scorable_card_ids, 2):
         query = f"""
             WITH bsi AS (
-                SELECT solution_id, (card_{c1}_score + card_{c2}_score) / 2.0 AS score
-                FROM solution_scores ORDER BY score DESC, super_score DESC LIMIT 1
+                SELECT solution_id, (card_{c1}_score + card_{c2}_score) / 2.0 AS best_score
+                FROM solution_scores ORDER BY best_score DESC, super_score DESC LIMIT 1
             )
-            SELECT {c1}, {c2}, s.solution_id, bsi.score, {layout_columns_str}
+            SELECT {c1}, {c2}, s.solution_id, bsi.best_score, {layout_columns_str}
             FROM solutions s JOIN bsi ON s.solution_id = bsi.solution_id;
         """
         result_df = main_con.execute(query).fetchdf()
         if not result_df.empty:
             best_con.execute("INSERT INTO best_card_pairs SELECT * FROM result_df")
             solution_row = result_df.iloc[0]
-            card1_dir = os.path.join(maps_2_cards_dir, str(c1))
-            card2_dir = os.path.join(card1_dir, str(c2))
+
+            score_str = f"score_{int(solution_row['best_score'])}"
+            c1_name = sanitize_folder_name(card_lookup.get(c1, ''))
+            c2_name = sanitize_folder_name(card_lookup.get(c2, ''))
+            folder1_name = f"{c1}_{c1_name}"
+            folder2_name = f"{c2}_{c2_name}"
+            filename = f"{c1}_{c2}_{score_str}.png"
+            
+            card1_dir = os.path.join(maps_2_cards_dir, folder1_name)
+            card2_dir = os.path.join(card1_dir, folder2_name)
             os.makedirs(card2_dir, exist_ok=True)
-            image_path = os.path.join(card2_dir, f"{c1}_{c2}.png")
+            image_path = os.path.join(card2_dir, filename)
             generate_tiling_image(solution_row, image_path)
             print(f"    - Mapa gerado para cartas {c1}_{c2}: {image_path}")
 
-    # --- 3. Melhores soluções para trios de cartas ---
+    # --- 3. Melhores soluções para trios de cartas (sem alterações) ---
     print("  -> Processando 3 cartas por vez...")
-    best_con.execute(f"CREATE TABLE best_card_trios (card_id_1 UTINYINT, card_id_2 UTINYINT, card_id_3 UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
-    # CORREÇÃO: Gera combinações apenas com os IDs das cartas pontuáveis
+    best_con.execute(f"CREATE OR REPLACE TABLE best_card_trios (card_id_1 UTINYINT, card_id_2 UTINYINT, card_id_3 UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
     for c1, c2, c3 in itertools.combinations(scorable_card_ids, 3):
         query = f"""
             WITH bsi AS (
-                SELECT solution_id, (card_{c1}_score + card_{c2}_score + card_{c3}_score) / 3.0 AS score
-                FROM solution_scores ORDER BY score DESC, super_score DESC LIMIT 1
+                SELECT solution_id, (card_{c1}_score + card_{c2}_score + card_{c3}_score) / 3.0 AS best_score
+                FROM solution_scores ORDER BY best_score DESC, super_score DESC LIMIT 1
             )
-            SELECT {c1}, {c2}, {c3}, s.solution_id, bsi.score, {layout_columns_str}
+            SELECT {c1}, {c2}, {c3}, s.solution_id, bsi.best_score, {layout_columns_str}
             FROM solutions s JOIN bsi ON s.solution_id = bsi.solution_id;
         """
         result_df = main_con.execute(query).fetchdf()
         if not result_df.empty:
             best_con.execute("INSERT INTO best_card_trios SELECT * FROM result_df")
             solution_row = result_df.iloc[0]
-            card1_dir = os.path.join(maps_3_cards_dir, str(c1))
-            card2_dir = os.path.join(card1_dir, str(c2))
-            card3_dir = os.path.join(card2_dir, str(c3))
+
+            score_str = f"score_{int(solution_row['best_score'])}"
+            c1_name = sanitize_folder_name(card_lookup.get(c1, ''))
+            c2_name = sanitize_folder_name(card_lookup.get(c2, ''))
+            c3_name = sanitize_folder_name(card_lookup.get(c3, ''))
+            folder1_name = f"{c1}_{c1_name}"
+            folder2_name = f"{c2}_{c2_name}"
+            folder3_name = f"{c3}_{c3_name}"
+            filename = f"{c1}_{c2}_{c3}_{score_str}.png"
+            
+            card1_dir = os.path.join(maps_3_cards_dir, folder1_name)
+            card2_dir = os.path.join(card1_dir, folder2_name)
+            card3_dir = os.path.join(card2_dir, folder3_name)
             os.makedirs(card3_dir, exist_ok=True)
-            image_path = os.path.join(card3_dir, f"{c1}_{c2}_{c3}.png")
+            image_path = os.path.join(card3_dir, filename)
             generate_tiling_image(solution_row, image_path)
             print(f"    - Mapa gerado para cartas {c1}_{c2}_{c3}: {image_path}")
     
-    # --- 4. Melhor solução geral (todas as 26 cartas) ---
+    # --- 4. Melhor solução geral (sem alterações) ---
     print(f"  -> Processando todas as {num_scorable_cards} cartas pontuáveis...")
-    best_con.execute(f"CREATE TABLE best_overall_solution (best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
-    # CORREÇÃO: Usa o super_score, que já soma apenas as cartas pontuáveis
+    best_con.execute(f"CREATE OR REPLACE TABLE best_overall_solution (best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
     query = f"""
         WITH bsi AS (
-            SELECT solution_id, super_score / {num_scorable_cards}.0 AS score
-            FROM solution_scores ORDER BY score DESC LIMIT 1
+            SELECT solution_id, super_score / {num_scorable_cards}.0 AS best_score
+            FROM solution_scores ORDER BY best_score DESC LIMIT 1
         )
-        SELECT s.solution_id, bsi.score, {layout_columns_str}
+        SELECT s.solution_id, bsi.best_score, {layout_columns_str}
         FROM solutions s JOIN bsi ON s.solution_id = bsi.solution_id;
     """
     result_df = main_con.execute(query).fetchdf()
     if not result_df.empty:
         best_con.execute("INSERT INTO best_overall_solution SELECT * FROM result_df")
         solution_row = result_df.iloc[0]
-        image_path = os.path.join(maps_all_cards_dir, f"all_{num_scorable_cards}_cards.png")
+
+        score_str = f"score_{int(solution_row['best_score'])}"
+        filename = f"all_{num_scorable_cards}_cards_{score_str}.png"
+
+        image_path = os.path.join(maps_all_cards_dir, filename)
         generate_tiling_image(solution_row, image_path)
         print(f"    - Mapa gerado para todas as cartas: {image_path}")
 
     main_con.close()
     best_con.close()
-    print(f"✅ Melhores soluções (com layouts e scores normalizados) salvas em '{BEST_SOLUTIONS_DB_PATH}'.")
+    print(f"✅ Melhores soluções salvas em '{BEST_SOLUTIONS_DB_PATH}'.")
 
 # =============================================================================
 # EXECUTOR PRINCIPAL
