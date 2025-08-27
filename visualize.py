@@ -6,8 +6,7 @@ import re
 
 # --- Configuração ---
 IMAGE_DIR = os.path.join('game', 'tiles', 'tile_images')
-SOLUTION_DIR = 'generated_solutions'
-# Janela mais larga para acomodar o painel de estatísticas
+SOLUTION_DIR = 'generated_solutionss' # Corrigido de 'generated_solutionss'
 WINDOW_WIDTH = 1200
 WINDOW_HEIGHT = 800
 GRID_DIM = 3
@@ -20,14 +19,14 @@ STATS_FONT_SIZE = 22
 STATS_HEADER_FONT_SIZE = 28
 
 # --- Configuração da Grade de Visualização ---
-GRID_SIZE = WINDOW_HEIGHT # A grade será um quadrado de 800x800
+GRID_SIZE = WINDOW_HEIGHT
 GRID_LINE_WIDTH = 5
-GRID_LINE_COLOR = (0, 0, 0) # Preto
+GRID_LINE_COLOR = (0, 0, 0)
 
-def find_latest_solution_file(directory, base_name="tiling_solutions", extension="duckdb"):
+def find_latest_solution_file(directory, base_name="tiling_solutions", extension="parquet"):
     """
     Encontra o arquivo de solução com o maior índice em um diretório.
-    Agora procura por arquivos .duckdb por padrão.
+    Agora procura por arquivos .parquet por padrão.
     """
     if not os.path.isdir(directory):
         return None, f"Diretório de soluções '{directory}' não encontrado."
@@ -48,11 +47,11 @@ def find_latest_solution_file(directory, base_name="tiling_solutions", extension
     if latest_file_path:
         return latest_file_path, None
     else:
-        return None, f"Nenhum arquivo de solução (ex: 'tiling_solutions_1.duckdb') encontrado em '{directory}'."
+        return None, f"Nenhum arquivo de solução (ex: '{base_name}_1.{extension}') encontrado em '{directory}'."
 
 def preload_images(tile_size):
     """
-    Carrega e escala todas as 18 imagens de peças em um dicionário (cache).
+    Carrega e escala todas as imagens de peças em um dicionário (cache).
     """
     image_cache = {}
     print("Pré-carregando e escalando imagens...")
@@ -74,43 +73,39 @@ def draw_stats(screen, solution_data, font, header_font):
     """
     Desenha o painel lateral com todas as estatísticas da solução.
     """
-    # Cria uma superfície para o painel
     stats_panel = pygame.Surface((STATS_PANEL_WIDTH, WINDOW_HEIGHT))
     stats_panel.fill(STATS_BG_COLOR)
     
-    # Desenha o cabeçalho
     header_text = header_font.render("Estatísticas da Solução", True, (255, 255, 255))
     stats_panel.blit(header_text, (20, 20))
 
-    # Filtra para obter apenas as colunas de estatísticas (não as de layout)
-    # CORREÇÃO AQUI: 'orientation_{r}{c}' mudou para 'orient_{r}{c}'
     excluded_cols = [f'piece_{r}{c}' for r in range(3) for c in range(3)] + \
                     [f'side_{r}{c}' for r in range(3) for c in range(3)] + \
                     [f'orient_{r}{c}' for r in range(3) for c in range(3)]
     
     y_offset = 70
+    # Usamos .items() para iterar sobre o dicionário da linha do DataFrame
     for col_name, value in solution_data.items():
         if col_name not in excluded_cols:
-            # Formata o texto
             stat_text = f"{col_name}: {value}"
             text_surface = font.render(stat_text, True, STATS_FONT_COLOR)
             stats_panel.blit(text_surface, (20, y_offset))
-            y_offset += 30 # Espaçamento entre as linhas
+            y_offset += 30
 
-    # Desenha o painel na tela principal
     screen.blit(stats_panel, (GRID_SIZE, 0))
 
-def draw_solution(screen, db_connection, solution_index, image_cache, fonts):
+def draw_solution(screen, db_connection, parquet_file, num_solutions, solution_index, image_cache, fonts):
     """
-    Busca uma solução do banco de dados e a desenha, incluindo suas estatísticas.
+    Busca uma solução de um arquivo Parquet e a desenha.
     """
-    num_solutions = db_connection.execute('SELECT COUNT(*) FROM solutions').fetchone()[0]
     solution_index = max(0, min(solution_index, num_solutions - 1))
 
-    query = f"SELECT * FROM solutions LIMIT 1 OFFSET {solution_index}"
+    # MODIFICADO: A consulta agora usa read_parquet()
+    query = f"SELECT * FROM read_parquet('{parquet_file}') LIMIT 1 OFFSET {solution_index}"
     solution_df = db_connection.execute(query).fetchdf()
     
     if solution_df.empty:
+        print(f"Aviso: Nenhuma solução encontrada no índice {solution_index}")
         return
 
     solution_row = solution_df.iloc[0]
@@ -123,8 +118,9 @@ def draw_solution(screen, db_connection, solution_index, image_cache, fonts):
         for c in range(GRID_DIM):
             piece = solution_row[f'piece_{r}{c}']
             side = solution_row[f'side_{r}{c}']
-            # CORREÇÃO AQUI: 'orientation_{r}{c}' mudou para 'orient_{r}{c}'
             orientation = solution_row[f'orient_{r}{c}']
+            
+            # Usamos get() para evitar erro se a imagem não foi carregada
             scaled_tile = image_cache.get((side, piece))
 
             if scaled_tile:
@@ -138,22 +134,24 @@ def draw_solution(screen, db_connection, solution_index, image_cache, fonts):
     pygame.draw.rect(screen, GRID_LINE_COLOR, (0, 0, GRID_SIZE, GRID_SIZE), GRID_LINE_WIDTH)
 
     draw_stats(screen, solution_row, fonts['stats'], fonts['header'])
-
     pygame.display.flip()
 
 def main(initial_index):
-    db_file_path, error = find_latest_solution_file(SOLUTION_DIR)
+    # MODIFICADO: Procura por arquivos .parquet
+    parquet_file_path, error = find_latest_solution_file(SOLUTION_DIR, extension="parquet")
     
     if error:
         print(f"❌ Erro: {error}")
         return
 
     try:
-        db_con = duckdb.connect(database=db_file_path, read_only=True)
-        num_solutions = db_con.execute('SELECT COUNT(*) FROM solutions').fetchone()[0]
-        print(f"✅ Conectado a '{db_file_path}' com {num_solutions:,} soluções.")
+        # MODIFICADO: Conecta a um banco de dados em memória, não a um arquivo
+        db_con = duckdb.connect()
+        # MODIFICADO: A consulta para contar as linhas agora lê o arquivo parquet
+        num_solutions = db_con.execute(f"SELECT COUNT(*) FROM read_parquet('{parquet_file_path}')").fetchone()[0]
+        print(f"✅ Lendo arquivo Parquet '{parquet_file_path}' com {num_solutions:,} soluções.")
     except Exception as e:
-        print(f"❌ Erro: Não foi possível abrir o banco de dados '{db_file_path}'. Detalhes: {e}")
+        print(f"❌ Erro: Não foi possível ler o arquivo Parquet '{parquet_file_path}'. Detalhes: {e}")
         return
 
     pygame.init()
@@ -174,7 +172,8 @@ def main(initial_index):
     image_cache = preload_images(tile_size)
 
     current_index = initial_index
-    draw_solution(screen, db_con, current_index, image_cache, fonts)
+    # MODIFICADO: Passa o caminho do arquivo e o número de soluções para a função
+    draw_solution(screen, db_con, parquet_file_path, num_solutions, current_index, image_cache, fonts)
 
     scroll_delay = 250
     scroll_interval = 1 
@@ -193,7 +192,7 @@ def main(initial_index):
                 if event.key == pygame.K_LEFT:  direction = -1
                 if direction != 0:
                     current_index = (current_index + direction + num_solutions) % num_solutions
-                    draw_solution(screen, db_con, current_index, image_cache, fonts)
+                    draw_solution(screen, db_con, parquet_file_path, num_solutions, current_index, image_cache, fonts)
                     scroll_timer = pygame.time.get_ticks() + scroll_delay
         
         keys = pygame.key.get_pressed()
@@ -205,7 +204,7 @@ def main(initial_index):
 
         if direction != 0 and now > scroll_timer:
             current_index = (current_index + direction + num_solutions) % num_solutions
-            draw_solution(screen, db_con, current_index, image_cache, fonts)
+            draw_solution(screen, db_con, parquet_file_path, num_solutions, current_index, image_cache, fonts)
             scroll_timer = now + scroll_interval
 
     db_con.close()
