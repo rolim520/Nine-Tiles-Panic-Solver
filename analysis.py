@@ -129,33 +129,36 @@ def _calculate_max_hamburgers_in_front_of_alien(road, aliens, captured_indices):
 
 
 def _calculate_max_aliens_between_agents(road, agents):
-
-    if len(agents) < 2:
-        return 0
-
+    """
+    Finds the maximum number of aliens between any two agents
+    that are explicitly facing each other.
+    """
     max_aliens = 0
-    for agent in agents:
-        agent_pos, agent_dir = agent['pos'], agent['dir']
-        current_aliens = 0
-        if agent_dir == 1:
-            for i in range(agent_pos + 1, len(road)):
-                item, item_dir = road[i]
-                if item == "alien":
-                    current_aliens += 1
-                elif item == "agent":
-                    if item_dir == 1:
-                        current_aliens = 0
-                    break
-        if agent_dir == 0:    
-            for i in range(agent_pos - 1, -1, -1):
-                item, item_dir = road[i]
-                if item == "alien":
-                    current_aliens += 1
-                elif item == "agent":
-                    if item_dir == 0:
-                        current_aliens = 0
-                    break
-        max_aliens = max(current_aliens, max_aliens)
+
+    # 1. We must check every possible combination of two agents.
+    for agent1 in agents:
+        for agent2 in agents:
+            # Ensure agent1 is to the left of agent2
+            if agent1['pos'] >= agent2['pos']:
+                continue
+
+            # 2. Check if they form a "facing each other" pair: -> ... <-
+            is_facing_pair = (agent1['dir'] == 1 and agent2['dir'] == 0)
+
+            if is_facing_pair:
+                # 3. If they are a valid pair, count the aliens between them.
+                start_pos = agent1['pos']
+                end_pos = agent2['pos']
+                
+                # Slice the road and count the aliens
+                aliens_in_between = [
+                    item for item, _ in road[start_pos + 1 : end_pos] if item == "alien"
+                ]
+                current_aliens = len(aliens_in_between)
+                
+                # 4. Update the overall maximum.
+                max_aliens = max(max_aliens, current_aliens)
+    
     return max_aliens
 
 
