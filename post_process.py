@@ -3,6 +3,7 @@ import duckdb
 import itertools
 import os, re
 import json
+import sys
 from PIL import Image
 
 # =============================================================================
@@ -123,59 +124,93 @@ def generate_tiling_image(solution_row, output_path):
     board_image.save(output_path, optimize=True, quality=85)
 
 # =============================================================================
-# FUNÇÃO 1: CRIAR O BANCO DE DADOS PRINCIPAL
+# FUNÇÃO 1: CRIAR O BANCO DE DADOS PRINCIPAL (VERSÃO OTIMIZADA COM TIPOS DE DADOS)
 # =============================================================================
 def create_db_from_parquet(parquet_file_path):
-    """Ingere o arquivo Parquet em um banco de dados DuckDB para processamento rápido."""
+    """
+    Ingere o arquivo Parquet em um banco DuckDB usando tipos de dados otimizados
+    e uma sintaxe de duas etapas (CREATE, depois INSERT).
+    """
     os.makedirs(DATABASES_OUTPUT_DIR, exist_ok=True)
     
     con = duckdb.connect(MAIN_DB_PATH)
-    
-    # --- ADICIONADO: Define um limite de memória para a ingestão ---
-    # Ajuste este valor para ~70% da sua RAM total (ex: '12GB', '24GB')
     con.execute("PRAGMA memory_limit='16GB';") 
-    # -----------------------------------------------------------
 
     tables = con.execute("SHOW TABLES;").fetchdf()
-    
     if 'solutions' in tables['name'].values:
         print(f"✅ Tabela 'solutions' já existe em '{MAIN_DB_PATH}'. Pulando a ingestão.")
         con.close()
         return
 
-    print(f"🚀 Iniciando a ingestão de '{parquet_file_path}' para '{MAIN_DB_PATH}'...")
-    print("Isso pode levar um tempo considerável dependendo do tamanho do arquivo.")
+    print(f"🚀 Iniciando a ingestão otimizada de '{parquet_file_path}' para '{MAIN_DB_PATH}'...")
+    print("Isso pode levar um tempo considerável, mas economizará muito espaço em disco.")
+
+    all_parquet_columns = STAT_COLUMNS[:]
+    for r in range(3):
+        for c in range(3):
+            pos = f"{r}{c}"
+            all_parquet_columns.extend([f"piece_{pos}", f"side_{pos}", f"orient_{pos}"])
+
+    definitions = ["solution_id UBIGINT"]
+    select_clauses = ["ROW_NUMBER() OVER () AS solution_id"]
+
+    for col in all_parquet_columns:
+        col_type = 'UTINYINT'
+        definitions.append(f'"{col}" {col_type}')
+        select_clauses.append(f'CAST("{col}" AS {col_type}) AS "{col}"')
+
+    definitions_sql = ", ".join(definitions)
+    select_clauses_sql = ", ".join(select_clauses)
+    
+    # --- CORREÇÃO APLICADA AQUI: Duas Consultas Separadas ---
+    # 1. Primeira consulta: Cria a tabela vazia com o schema otimizado.
+    create_table_query = f"CREATE TABLE solutions ({definitions_sql});"
+    
+    # 2. Segunda consulta: Insere os dados na tabela recém-criada.
+    insert_data_query = f"""
+        INSERT INTO solutions
+        SELECT {select_clauses_sql}
+        FROM read_parquet('{parquet_file_path}');
+    """
     
     try:
-        con.execute(f"""
-            CREATE TABLE solutions AS
-            SELECT ROW_NUMBER() OVER () AS solution_id, *
-            FROM read_parquet('{parquet_file_path}');
-        """)
-        print(f"✅ Banco de dados principal e tabela 'solutions' criados com sucesso.")
+        print("  -> Criando a estrutura da tabela 'solutions'...")
+        con.execute(create_table_query)
+        print("  -> Inserindo e convertendo dados do Parquet...")
+        con.execute(insert_data_query)
+        print("✅ Banco de dados principal e tabela 'solutions' criados com sucesso usando tipos otimizados.")
     except Exception as e:
-        print(f"❌ ERRO durante a ingestão do arquivo Parquet: {e}")
+        print(f"❌ ERRO durante a ingestão otimizada do arquivo Parquet: {e}")
+        con.close()
+        # --- CORREÇÃO APLICADA AQUI: Garante que o script pare em caso de erro ---
+        sys.exit(1)
     
     con.close()
+
 
 # =============================================================================
 # FUNÇÃO 2: CALCULAR PERCENTIS E FREQUÊNCIAS
 # =============================================================================
 def calculate_percentiles():
-    """Calcula frequência e percentil para cada estatística em uma única consulta."""
+    """Calcula frequência e percentil e salva na tabela com tipos de dados otimizados."""
     print("\n🚀 Calculando frequências e percentis para todas as estatísticas (versão otimizada)...")
     
     main_con = duckdb.connect(MAIN_DB_PATH, read_only=True)
     main_con.execute("PRAGMA memory_limit='16GB';")
     
     percentiles_con = duckdb.connect(PERCENTILES_DB_PATH)
+    
+    # --- OTIMIZAÇÃO APLICADA AQUI ---
     percentiles_con.execute("""
         CREATE OR REPLACE TABLE stat_percentiles (
-            stat_name VARCHAR, stat_value INTEGER, frequency BIGINT, percentile DOUBLE
+            stat_name VARCHAR,
+            stat_value UTINYINT,
+            frequency UBIGINT,
+            percentile REAL
         );
     """)
 
-    # 1. Monta uma subconsulta para cada estatística
+    # ... (o resto da função permanece idêntico) ...
     union_queries = []
     for stat in STAT_COLUMNS:
         query_part = f"""
@@ -185,26 +220,24 @@ def calculate_percentiles():
         """
         union_queries.append(query_part)
     
-    # 2. Une todas elas em uma única grande consulta com UNION ALL
     full_query = "\nUNION ALL\n".join(union_queries)
 
-    # 3. Adiciona o cálculo de percentil sobre o resultado consolidado
     final_query = f"""
         WITH AllValueCounts AS (
             {full_query}
         )
         SELECT 
             stat_name, 
-            stat_value, 
-            frequency,
-            (PERCENT_RANK() OVER (PARTITION BY stat_name ORDER BY stat_value)) * 100 AS percentile
+            CAST(stat_value AS UTINYINT),
+            CAST(frequency AS UBIGINT),
+            CAST((PERCENT_RANK() OVER (PARTITION BY stat_name ORDER BY stat_value)) * 100 AS REAL)
         FROM AllValueCounts;
     """
     
     print("  -> Executando a consulta consolidada. Isso pode levar um tempo...")
     df = main_con.execute(final_query).fetchdf()
     
-    print("  -> Inserindo resultados e criando o dicionário em memória...")
+    print(f"  -> Inserindo resultados em '{PERCENTILES_DB_PATH}'...")
     percentiles_con.execute("INSERT INTO stat_percentiles SELECT * FROM df")
 
     percentiles_con.close()
@@ -212,82 +245,90 @@ def calculate_percentiles():
     
     print(f"✅ Frequências e percentis salvos em '{PERCENTILES_DB_PATH}'.")
 
+
 # =============================================================================
-# FUNÇÃO 3: PRÉ-CALCULAR E ARMAZENAR TODOS OS SCORES (VERSÃO OTIMIZADA)
+# FUNÇÃO 3: PRÉ-CALCULAR E ARMAZENAR TODOS OS SCORES (VERSÃO FINAL COM ATTACH)
 # =============================================================================
-# REFACTORED FUNCTION 3
 def precompute_all_scores(game_cards):
     """
-    Generates and stores scores for all solutions using a more efficient,
-    SQL-native UNPIVOT -> JOIN -> PIVOT strategy.
+    Generates and stores scores using optimized data types (REAL for scores) to save space.
     """
     print("\n🚀 Pré-calculando scores para todas as soluções (versão SQL-native)...")
     
-    con = duckdb.connect(MAIN_DB_PATH)
-    con.execute("PRAGMA memory_limit='24GB';") # Give DuckDB plenty of memory
+    con = duckdb.connect(MAIN_DB_PATH, read_only=False) # Conecta no BD principal
+    con.execute("PRAGMA memory_limit='24GB';")
+    
+    # Opcional: Se precisar de um diretório temporário em outro disco, descomente a linha abaixo
+    # con.execute("PRAGMA temp_directory='/path/to/large/disk/duckdb_temp';")
+    
+    try:
+        con.execute(f"ATTACH '{PERCENTILES_DB_PATH}' AS percentiles_db (READ_ONLY);")
+        print(f"  -> Banco de dados '{PERCENTILES_DB_PATH}' anexado com sucesso.")
+    except Exception as e:
+        print(f"❌ Falha ao anexar o banco de dados de percentis: {e}")
+        con.close()
+        return
 
     try:
-        count_check = con.execute("SELECT COUNT(*) FROM solution_scores").fetchone()
-        if count_check and count_check[0] > 0:
-            print("✅ Tabela 'solution_scores' já calculada. Pulando.")
-            con.close()
-            return
+        con.execute("DROP TABLE IF EXISTS solution_scores;")
+        print("  -> Tabela 'solution_scores' antiga removida para garantir a recriação.")
     except duckdb.CatalogException:
-        pass # Table doesn't exist, proceed with calculation.
+        pass
 
-    # Build the PIVOT aggregation statement dynamically from game_cards
+    # Build the manual PIVOT aggregation statements
     pivot_aggregates = []
-    score_sums = []
-    card_type_map = {card['key']: card['type'] for card in game_cards if 'key' in card}
-
     for i, card in enumerate(game_cards):
         card_num = i + 1
         card_key = card.get('key')
         if not card_key: continue
         
-        # The score logic is now inside the SQL aggregation
-        score_logic = "p.percentile" if card.get('type') == 'max' else "100.0 - p.percentile"
+        score_logic = "u.percentile" if card.get('type') == 'max' else "100.0 - u.percentile"
         
+        # --- OTIMIZAÇÃO APLICADA AQUI ---
+        # A agregação é envelopada com CAST(... AS REAL) para forçar o tipo de 4 bytes
+        aggregation = f"FIRST(CASE WHEN u.stat_name = '{card_key}' THEN {score_logic} ELSE NULL END)"
         pivot_aggregates.append(
-            f"card_{card_num}_score AS FIRST({score_logic} WHERE u.stat_name = '{card_key}')"
+            f"CAST({aggregation} AS REAL) AS card_{card_num}_score"
         )
-        score_sums.append(f"card_{card_num}_score")
 
-    pivot_sql = ",\n        ".join(pivot_aggregates)
-    super_score_sql = " + ".join(score_sums)
+    pivot_sql = ",\n            ".join(pivot_aggregates)
+    super_score_sql = " + ".join([f"card_{i+1}_score" for i, card in enumerate(game_cards) if card.get('key')])
+    unpivot_cols_sql = ", ".join(STAT_COLUMNS)
 
-    # This single query replaces the entire chunking logic.
-    # DuckDB is extremely efficient at executing this pattern.
     full_query = f"""
-        CREATE OR REPLACE TABLE solution_scores AS
+        CREATE TABLE solution_scores AS
         WITH unpivoted_solutions AS (
-            -- Step 1: Unpivot the solutions table
             UNPIVOT solutions
-            ON {STAT_COLUMNS}
+            ON {unpivot_cols_sql}
             INTO
                 NAME stat_name
                 VALUE stat_value
         ),
         scored_stats AS (
-            -- Step 2: Join with percentiles to get the base score for each stat
             SELECT
                 u.solution_id,
                 u.stat_name,
                 p.percentile
             FROM unpivoted_solutions u
-            JOIN stat_percentiles p
+            JOIN percentiles_db.stat_percentiles p
               ON u.stat_name = p.stat_name AND u.stat_value = p.stat_value
+        ),
+        pivoted_scores AS (
+            SELECT
+                solution_id,
+                {pivot_sql}
+            FROM scored_stats u
+            GROUP BY solution_id
         )
-        -- Step 3: Pivot the data back, calculating the final scores
         SELECT
-            solution_id,
-            {pivot_sql},
-            {super_score_sql} AS super_score
-        FROM scored_stats
-        GROUP BY solution_id;
+            *,
+            -- --- OTIMIZAÇÃO APLICADA AQUI ---
+            -- O super_score também é convertido para REAL
+            CAST({super_score_sql} AS REAL) AS super_score
+        FROM pivoted_scores;
     """
     
-    print("  -> Executando a consulta UNPIVOT/JOIN/PIVOT. DuckDB vai otimizar isso...")
+    print("  -> Executando a consulta com tipos de score otimizados (REAL).")
     con.execute(full_query)
 
     print("  -> Criando índice em super_score para desempate rápido...")
@@ -295,7 +336,6 @@ def precompute_all_scores(game_cards):
     
     con.close()
     print("✅ Tabela 'solution_scores' criada e indexada com sucesso.")
-
 
 # =============================================================================
 # FUNÇÃO 4: ENCONTRAR AS MELHORES SOLUÇÕES E GERAR MAPAS (VERSÃO COM NOME DE ARQUIVO SIMPLIFICADO)
@@ -306,7 +346,15 @@ def find_best_solutions_and_generate_maps(game_cards):
     """
     print("\n🚀 Finding best solutions with consolidated SQL queries...")
 
-    main_con = duckdb.connect(MAIN_DB_PATH, read_only=True)
+    # A conexão com main_con precisa ser read_only=False para permitir o ATTACH
+    main_con = duckdb.connect(MAIN_DB_PATH, read_only=False)
+    # Anexa o solution_scores que está dentro do mesmo banco de dados principal
+    try:
+        main_con.execute("ATTACH '{}' AS db2;".format(MAIN_DB_PATH))
+        main_con.execute("USE db2;")
+    except Exception as e:
+        print(f"Warn: Could not re-attach main DB, might be unnecessary. Error: {e}")
+
     best_con = duckdb.connect(BEST_SOLUTIONS_DB_PATH)
 
     # --- Setup ---
@@ -321,7 +369,7 @@ def find_best_solutions_and_generate_maps(game_cards):
     layout_definitions_str = ", ".join(layout_definitions)
     
     card_lookup = {card['number']: card['name'] for card in game_cards}
-    scorable_card_ids = sorted([card['number'] for card in game_cards if card.get('key')]) # Sorted for consistent folder names
+    scorable_card_ids = sorted([card['number'] for card in game_cards if card.get('key')])
     num_scorable_cards = len(scorable_card_ids)
     print(f"  -> Found {num_scorable_cards} scorable cards.")
     
@@ -339,7 +387,8 @@ def find_best_solutions_and_generate_maps(game_cards):
 
     # --- 1. Best solutions for SINGLE cards (ONE QUERY) ---
     print("  -> Processing all single cards in one query...")
-    best_con.execute(f"CREATE OR REPLACE TABLE best_single_card (card_id UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
+    # --- ALTERAÇÃO AQUI: BIGINT -> UBIGINT, DOUBLE -> REAL ---
+    best_con.execute(f"CREATE OR REPLACE TABLE best_single_card (card_id UTINYINT, best_solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
     
     unioned_singles = " UNION ALL ".join([f"SELECT {cid} as card_id, solution_id, card_{cid}_score as score, super_score FROM solution_scores" for cid in scorable_card_ids])
     single_card_query = f"""
@@ -367,93 +416,97 @@ def find_best_solutions_and_generate_maps(game_cards):
 
     # --- 2. Best solutions for PAIRS of cards (ONE QUERY) ---
     print("  -> Processing all card pairs in one query...")
-    best_con.execute(f"CREATE OR REPLACE TABLE best_card_pairs (card_id_1 UTINYINT, card_id_2 UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
+    # --- ALTERAÇÃO AQUI: BIGINT -> UBIGINT, DOUBLE -> REAL ---
+    best_con.execute(f"CREATE OR REPLACE TABLE best_card_pairs (card_id_1 UTINYINT, card_id_2 UTINYINT, best_solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
     
     card_pairs = list(itertools.combinations(scorable_card_ids, 2))
-    values_list = ", ".join([f"({c1}, {c2})" for c1, c2 in card_pairs])
-    
-    pairs_query = f"""
-        WITH AllPairs(c1, c2) AS (VALUES {values_list}),
-        RankedSolutions AS (
-            SELECT
-                p.c1, p.c2, s.solution_id,
-                ROW_NUMBER() OVER (
-                    PARTITION BY p.c1, p.c2
-                    ORDER BY (s.card_{{c1}}_score + s.card_{{c2}}_score) DESC, LEAST(s.card_{{c1}}_score, s.card_{{c2}}_score) DESC, s.super_score DESC
-                ) as rn
-            FROM solution_scores s CROSS JOIN AllPairs p
-        )
-        SELECT rs.c1, rs.c2, rs.solution_id, (ss.card_{{c1}}_score + ss.card_{{c2}}_score) / 2.0 AS best_score, {layout_columns_str}
-        FROM RankedSolutions rs
-        JOIN solutions s ON rs.solution_id = s.solution_id
-        JOIN solution_scores ss ON rs.solution_id = ss.solution_id
-        WHERE rs.rn = 1;
-    """
-    formatted_pairs_query = pairs_query.format(c1='p.c1', c2='p.c2')
-    all_best_pairs_df = main_con.execute(formatted_pairs_query).fetchdf()
+    if card_pairs:
+        values_list = ", ".join([f"({c1}, {c2})" for c1, c2 in card_pairs])
+        pairs_query = f"""
+            WITH AllPairs(c1, c2) AS (VALUES {values_list}),
+            RankedSolutions AS (
+                SELECT
+                    p.c1, p.c2, s.solution_id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY p.c1, p.c2
+                        ORDER BY (s.card_{{c1}}_score + s.card_{{c2}}_score) DESC, LEAST(s.card_{{c1}}_score, s.card_{{c2}}_score) DESC, s.super_score DESC
+                    ) as rn
+                FROM solution_scores s CROSS JOIN AllPairs p
+            )
+            SELECT rs.c1, rs.c2, rs.solution_id, (ss.card_{{c1}}_score + ss.card_{{c2}}_score) / 2.0 AS best_score, {layout_columns_str}
+            FROM RankedSolutions rs
+            JOIN solutions s ON rs.solution_id = s.solution_id
+            JOIN solution_scores ss ON rs.solution_id = ss.solution_id
+            WHERE rs.rn = 1;
+        """
+        formatted_pairs_query = pairs_query.format(c1='p.c1', c2='p.c2')
+        all_best_pairs_df = main_con.execute(formatted_pairs_query).fetchdf()
 
-    if not all_best_pairs_df.empty:
-        best_con.execute("INSERT INTO best_card_pairs SELECT * FROM all_best_pairs_df")
-        for _, row in all_best_pairs_df.iterrows():
-            c1, c2 = row['c1'], row['c2']
-            c1_name = sanitize_folder_name(card_lookup.get(c1, ''))
-            c2_name = sanitize_folder_name(card_lookup.get(c2, ''))
-            folder1_name = f"{c1:02d}_{c1_name}"
-            folder2_name = f"{c2:02d}_{c2_name}"
-            filename = f"{c1:02d}_{c2:02d}_score_{int(row['best_score'])}.png"
-            card1_dir = os.path.join(maps_2_cards_dir, folder1_name)
-            card2_dir = os.path.join(card1_dir, folder2_name)
-            os.makedirs(card2_dir, exist_ok=True)
-            image_path = os.path.join(card2_dir, filename)
-            image_tasks.append((row, image_path))
-            print(f"    - Task added for pair {c1}-{c2}")
+        if not all_best_pairs_df.empty:
+            best_con.execute("INSERT INTO best_card_pairs SELECT * FROM all_best_pairs_df")
+            for _, row in all_best_pairs_df.iterrows():
+                c1, c2 = row['c1'], row['c2']
+                c1_name = sanitize_folder_name(card_lookup.get(c1, ''))
+                c2_name = sanitize_folder_name(card_lookup.get(c2, ''))
+                folder1_name = f"{c1:02d}_{c1_name}"
+                folder2_name = f"{c2:02d}_{c2_name}"
+                filename = f"{c1:02d}_{c2:02d}_score_{int(row['best_score'])}.png"
+                card1_dir = os.path.join(maps_2_cards_dir, folder1_name)
+                card2_dir = os.path.join(card1_dir, folder2_name)
+                os.makedirs(card2_dir, exist_ok=True)
+                image_path = os.path.join(card2_dir, filename)
+                image_tasks.append((row, image_path))
+                print(f"    - Task added for pair {c1}-{c2}")
 
     # --- 3. Best solutions for TRIOS of cards (ONE QUERY) ---
     print("  -> Processing all card trios in one query...")
-    best_con.execute(f"CREATE OR REPLACE TABLE best_card_trios (card_id_1 UTINYINT, card_id_2 UTINYINT, card_id_3 UTINYINT, best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
+    # --- ALTERAÇÃO AQUI: BIGINT -> UBIGINT, DOUBLE -> REAL ---
+    best_con.execute(f"CREATE OR REPLACE TABLE best_card_trios (card_id_1 UTINYINT, card_id_2 UTINYINT, card_id_3 UTINYINT, best_solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
     
     card_trios = list(itertools.combinations(scorable_card_ids, 3))
-    values_list_trios = ", ".join([f"({c1}, {c2}, {c3})" for c1, c2, c3 in card_trios])
-    
-    trios_query = f"""
-        WITH AllTrios(c1, c2, c3) AS (VALUES {values_list_trios}),
-        RankedSolutions AS (
-            SELECT
-                p.c1, p.c2, p.c3, s.solution_id,
-                ROW_NUMBER() OVER (
-                    PARTITION BY p.c1, p.c2, p.c3
-                    ORDER BY (s.card_{{c1}}_score + s.card_{{c2}}_score + s.card_{{c3}}_score) DESC, LEAST(s.card_{{c1}}_score, s.card_{{c2}}_score, s.card_{{c3}}_score) DESC, s.super_score DESC
-                ) as rn
-            FROM solution_scores s CROSS JOIN AllTrios p
-        )
-        SELECT rs.c1, rs.c2, rs.c3, rs.solution_id, (ss.card_{{c1}}_score + ss.card_{{c2}}_score + ss.card_{{c3}}_score) / 3.0 AS best_score, {layout_columns_str}
-        FROM RankedSolutions rs
-        JOIN solutions s ON rs.solution_id = s.solution_id
-        JOIN solution_scores ss ON rs.solution_id = ss.solution_id
-        WHERE rs.rn = 1;
-    """
-    formatted_trios_query = trios_query.format(c1='p.c1', c2='p.c2', c3='p.c3')
-    all_best_trios_df = main_con.execute(formatted_trios_query).fetchdf()
+    if card_trios:
+        values_list_trios = ", ".join([f"({c1}, {c2}, {c3})" for c1, c2, c3 in card_trios])
+        trios_query = f"""
+            WITH AllTrios(c1, c2, c3) AS (VALUES {values_list_trios}),
+            RankedSolutions AS (
+                SELECT
+                    p.c1, p.c2, p.c3, s.solution_id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY p.c1, p.c2, p.c3
+                        ORDER BY (s.card_{{c1}}_score + s.card_{{c2}}_score + s.card_{{c3}}_score) DESC, LEAST(s.card_{{c1}}_score, s.card_{{c2}}_score, s.card_{{c3}}_score) DESC, s.super_score DESC
+                    ) as rn
+                FROM solution_scores s CROSS JOIN AllTrios p
+            )
+            SELECT rs.c1, rs.c2, rs.c3, rs.solution_id, (ss.card_{{c1}}_score + ss.card_{{c2}}_score + ss.card_{{c3}}_score) / 3.0 AS best_score, {layout_columns_str}
+            FROM RankedSolutions rs
+            JOIN solutions s ON rs.solution_id = s.solution_id
+            JOIN solution_scores ss ON rs.solution_id = ss.solution_id
+            WHERE rs.rn = 1;
+        """
+        formatted_trios_query = trios_query.format(c1='p.c1', c2='p.c2', c3='p.c3')
+        all_best_trios_df = main_con.execute(formatted_trios_query).fetchdf()
 
-    if not all_best_trios_df.empty:
-        best_con.execute("INSERT INTO best_card_trios SELECT * FROM all_best_trios_df")
-        for _, row in all_best_trios_df.iterrows():
-            c1, c2, c3 = row['c1'], row['c2'], row['c3']
-            score_str = f"score_{int(row['best_score'])}"
-            c1_name, c2_name, c3_name = [sanitize_folder_name(card_lookup.get(c, '')) for c in [c1, c2, c3]]
-            folder1_name, folder2_name, folder3_name = f"{c1:02d}_{c1_name}", f"{c2:02d}_{c2_name}", f"{c3:02d}_{c3_name}"
-            filename = f"{c1:02d}_{c2:02d}_{c3:02d}_{score_str}.png"
-            card1_dir = os.path.join(maps_3_cards_dir, folder1_name)
-            card2_dir = os.path.join(card1_dir, folder2_name)
-            card3_dir = os.path.join(card2_dir, folder3_name)
-            os.makedirs(card3_dir, exist_ok=True)
-            image_path = os.path.join(card3_dir, filename)
-            image_tasks.append((row, image_path))
-            print(f"    - Task added for trio {c1}-{c2}-{c3}")
+        if not all_best_trios_df.empty:
+            best_con.execute("INSERT INTO best_card_trios SELECT * FROM all_best_trios_df")
+            for _, row in all_best_trios_df.iterrows():
+                c1, c2, c3 = row['c1'], row['c2'], row['c3']
+                score_str = f"score_{int(row['best_score'])}"
+                c1_name, c2_name, c3_name = [sanitize_folder_name(card_lookup.get(c, '')) for c in [c1, c2, c3]]
+                folder1_name, folder2_name, folder3_name = f"{c1:02d}_{c1_name}", f"{c2:02d}_{c2_name}", f"{c3:02d}_{c3_name}"
+                filename = f"{c1:02d}_{c2:02d}_{c3:02d}_{score_str}.png"
+                card1_dir = os.path.join(maps_3_cards_dir, folder1_name)
+                card2_dir = os.path.join(card1_dir, folder2_name)
+                card3_dir = os.path.join(card2_dir, folder3_name)
+                os.makedirs(card3_dir, exist_ok=True)
+                image_path = os.path.join(card3_dir, filename)
+                image_tasks.append((row, image_path))
+                print(f"    - Task added for trio {c1}-{c2}-{c3}")
 
     # --- 4. Best overall solution (This was already a single query and is fine) ---
     print(f"  -> Processing all {num_scorable_cards} scorable cards...")
-    best_con.execute(f"CREATE OR REPLACE TABLE best_overall_solution (best_solution_id BIGINT, best_score DOUBLE, {layout_definitions_str});")
+    # --- ALTERAÇÃO AQUI: BIGINT -> UBIGINT, DOUBLE -> REAL ---
+    best_con.execute(f"CREATE OR REPLACE TABLE best_overall_solution (best_solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
+    
     least_columns = ", ".join([f"card_{cid}_score" for cid in scorable_card_ids])
     query = f"""
         WITH bsi AS (
