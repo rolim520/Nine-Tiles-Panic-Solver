@@ -4,6 +4,7 @@ import os
 import duckdb
 import multiprocessing
 import glob
+import numpy as np
 import pandas as pd
 
 from solver import UnionFind, generate_tile_connections, find_valid_tilings_generator, find_candidate_tiles
@@ -15,7 +16,7 @@ CHUNK_SIZE = 100_000
 TEMP_DIR = "temp_solutions" # A dedicated folder for temporary files
 
 def solve_for_task(task_config):
-    # --- MODIFIED: 'start_index' has been removed ---
+    # ... (argumentos da task_config) ...
     worker_id = task_config['id']
     tiling = task_config['tiling']
     available_pieces = task_config['available_pieces']
@@ -28,12 +29,12 @@ def solve_for_task(task_config):
     initial_domains = {}
     for r in range(3):
         for c in range(3):
-            if not tiling[r][c]:
+            # --- ALTERAÇÃO AQUI: Verificação ajustada para NumPy ---
+            if tiling[r, c, 0] == -1: # Verifica se a célula está vazia
                 pos = r * 3 + c
                 initial_domains[(r, c)] = find_candidate_tiles(tiling, pos, available_pieces, tile_connections)
 
     with SolutionWriter(temp_file_path, CHUNK_SIZE, silent=True, worker_id=worker_id) as writer:
-        # The new generator is called here, which doesn't use a start_index
         solution_generator = find_valid_tilings_generator(
             tiling, available_pieces, game_tiles, tile_connections, uf_structure, initial_domains
         )
@@ -123,11 +124,11 @@ def main():
     # Outer loop: Place the first piece (Piece 0)
     for config in search_configs:
         for first_candidate in config['candidates']:
-            # Create an intermediate state with the first piece placed
-            tiling1 = [[() for _ in range(3)] for _ in range(3)]
-            tiling1[config['start_pos'][0]][config['start_pos'][1]] = first_candidate
+            # Inicializa tiling como NumPy array, usando -1 para indicar uma célula vazia
+            tiling1 = np.full((3, 3, 3), -1, dtype=np.int8)
+            tiling1[config['start_pos'][0], config['start_pos'][1]] = first_candidate
             
-            available_pieces1 = set(range(1, 9)) # Pieces 1-8 are available
+            available_pieces1 = set(range(1, 9))
             
             uf1 = UnionFind(NUM_NODES)
             (piece1, side1, orientation1) = first_candidate
@@ -138,36 +139,32 @@ def main():
                 g_id2 = TILE_NODES[pos1][(l_conn2 + orientation1) % 4]
                 uf1.union(g_id1, g_id2)
 
-            # --- LÓGICA DE GRANULARIDADE AUMENTADA ---
             # Inner loop: Iterate through empty spots to place a second piece
             for r2 in range(3):
                 for c2 in range(3):
-                    if not tiling1[r2][c2]: # If the spot is empty
+                    # --- ALTERAÇÃO AQUI: A verificação de célula vazia foi ajustada para NumPy ---
+                    if tiling1[r2, c2, 0] == -1: # Se a célula está vazia (valor da peça é -1)
                         pos2 = r2 * 3 + c2
                         
-                        # Find all valid pieces/orientations for this second spot
                         second_piece_candidates = find_candidate_tiles(
                             tiling1, pos2, available_pieces1, tile_connections
                         )
                         
-                        # Create a task for each valid second piece placement
                         for second_candidate in second_piece_candidates:
-                            # Create the final task state based on the two placed pieces
-                            tiling2 = [row[:] for row in tiling1]
-                            tiling2[r2][c2] = second_candidate
+                            tiling2 = tiling1.copy()
+                            tiling2[r2, c2] = second_candidate
 
                             (piece2, side2, orientation2) = second_candidate
                             available_pieces2 = available_pieces1.copy()
                             available_pieces2.remove(piece2)
                             
-                            uf2 = uf1.copy() # IMPORTANT: Copy the UF structure
+                            uf2 = uf1.copy()
                             for road in game_tiles[piece2][side2]["roads"]:
                                 l_conn1, l_conn2 = road['connection']
                                 g_id1 = TILE_NODES[pos2][(l_conn1 + orientation2) % 4]
                                 g_id2 = TILE_NODES[pos2][(l_conn2 + orientation2) % 4]
                                 uf2.union(g_id1, g_id2)
 
-                            # Package everything the worker needs for a 2-piece start
                             tasks.append({
                                 'id': task_id_counter,
                                 'tiling': tiling2,
@@ -177,7 +174,6 @@ def main():
                                 'tile_connections': tile_connections
                             })
                             task_id_counter += 1
-            # --- FIM DA LÓGICA DE GRANULARIDADE ---
 
     # --- 3. RUN IN PARALLEL ---
     cpu_count = os.cpu_count()
@@ -195,6 +191,7 @@ def main():
     print("\n-------------------------------------------")
     print(f"✅ All tasks complete. Found a total of {total_solutions:,} solutions.")
     print("-------------------------------------------")
+
 
 if __name__ == "__main__":
     main()
