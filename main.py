@@ -96,7 +96,7 @@ def main():
         game_tiles = json.load(file)
     tile_connections = generate_tile_connections(game_tiles)
 
-    # --- MODIFIED: 'start_index' has been removed from the configurations ---
+    # Configurations for placing the VERY FIRST piece (Piece 0)
     search_configs = [
         {
             "name": "Piece 0 at top-left corner",
@@ -115,42 +115,75 @@ def main():
         }
     ]
 
-    # --- 2. PREPARE TASKS ---
-    print("Preparing tasks for parallel execution...")
+    # --- 2. PREPARE TASKS (LOGIC MODIFIED FOR HIGHER GRANULARITY) ---
+    print("Preparing tasks with increased granularity (2 initial pieces)...")
     tasks = []
     task_id_counter = 0
-    for config in search_configs:
-        for candidate in config['candidates']:
-            tiling = [[() for _ in range(3)] for _ in range(3)]
-            tiling[config['start_pos'][0]][config['start_pos'][1]] = candidate
-            available_pieces = set(range(1, 9))
-            
-            uf = UnionFind(NUM_NODES)
-            (piece, side, orientation) = candidate
-            piece_pos = config['start_pos'][0] * 3 + config['start_pos'][1]
-            for road in game_tiles[piece][side]["roads"]:
-                l_conn1, l_conn2 = road['connection']
-                g_id1 = TILE_NODES[piece_pos][(l_conn1 + orientation) % 4]
-                g_id2 = TILE_NODES[piece_pos][(l_conn2 + orientation) % 4]
-                uf.union(g_id1, g_id2)
 
-            # Package everything a worker needs into a dictionary
-            tasks.append({
-                'id': task_id_counter,
-                'tiling': tiling,
-                'available_pieces': available_pieces,
-                'uf_structure': uf,
-                'game_tiles': game_tiles,
-                'tile_connections': tile_connections
-            })
-            task_id_counter += 1
+    # Outer loop: Place the first piece (Piece 0)
+    for config in search_configs:
+        for first_candidate in config['candidates']:
+            # Create an intermediate state with the first piece placed
+            tiling1 = [[() for _ in range(3)] for _ in range(3)]
+            tiling1[config['start_pos'][0]][config['start_pos'][1]] = first_candidate
+            
+            available_pieces1 = set(range(1, 9)) # Pieces 1-8 are available
+            
+            uf1 = UnionFind(NUM_NODES)
+            (piece1, side1, orientation1) = first_candidate
+            pos1 = config['start_pos'][0] * 3 + config['start_pos'][1]
+            for road in game_tiles[piece1][side1]["roads"]:
+                l_conn1, l_conn2 = road['connection']
+                g_id1 = TILE_NODES[pos1][(l_conn1 + orientation1) % 4]
+                g_id2 = TILE_NODES[pos1][(l_conn2 + orientation1) % 4]
+                uf1.union(g_id1, g_id2)
+
+            # --- LÓGICA DE GRANULARIDADE AUMENTADA ---
+            # Inner loop: Iterate through empty spots to place a second piece
+            for r2 in range(3):
+                for c2 in range(3):
+                    if not tiling1[r2][c2]: # If the spot is empty
+                        pos2 = r2 * 3 + c2
+                        
+                        # Find all valid pieces/orientations for this second spot
+                        second_piece_candidates = find_candidate_tiles(
+                            tiling1, pos2, available_pieces1, tile_connections
+                        )
+                        
+                        # Create a task for each valid second piece placement
+                        for second_candidate in second_piece_candidates:
+                            # Create the final task state based on the two placed pieces
+                            tiling2 = [row[:] for row in tiling1]
+                            tiling2[r2][c2] = second_candidate
+
+                            (piece2, side2, orientation2) = second_candidate
+                            available_pieces2 = available_pieces1.copy()
+                            available_pieces2.remove(piece2)
+                            
+                            uf2 = uf1.copy() # IMPORTANT: Copy the UF structure
+                            for road in game_tiles[piece2][side2]["roads"]:
+                                l_conn1, l_conn2 = road['connection']
+                                g_id1 = TILE_NODES[pos2][(l_conn1 + orientation2) % 4]
+                                g_id2 = TILE_NODES[pos2][(l_conn2 + orientation2) % 4]
+                                uf2.union(g_id1, g_id2)
+
+                            # Package everything the worker needs for a 2-piece start
+                            tasks.append({
+                                'id': task_id_counter,
+                                'tiling': tiling2,
+                                'available_pieces': available_pieces2,
+                                'uf_structure': uf2,
+                                'game_tiles': game_tiles,
+                                'tile_connections': tile_connections
+                            })
+                            task_id_counter += 1
+            # --- FIM DA LÓGICA DE GRANULARIDADE ---
 
     # --- 3. RUN IN PARALLEL ---
     cpu_count = os.cpu_count()
     print(f"Distributing {len(tasks)} tasks across {cpu_count} CPU cores...")
     os.makedirs(TEMP_DIR, exist_ok=True)
     
-    # Create a pool of workers and map the tasks to them
     with multiprocessing.Pool(cpu_count) as pool:
         results = pool.map(solve_for_task, tasks)
 
