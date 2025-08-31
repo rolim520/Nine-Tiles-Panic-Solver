@@ -87,7 +87,7 @@ def merge_parquet_files(temp_dir, final_output_path):
         print(f"❌ Ocorreu um erro durante a mesclagem com o DuckDB: {e}")
 
 def main():
-    # 1. Define the output directory and get the unique, indexed file path
+    # 1. Define o output directory e get the unique, indexed file path
     OUTPUT_DIR = "generated_solutions"
     CHUNK_SIZE = 100_000
     file_path = get_next_filename(OUTPUT_DIR, base_name="tiling_solutions")
@@ -116,64 +116,41 @@ def main():
         }
     ]
 
-    # --- 2. PREPARE TASKS (LOGIC MODIFIED FOR HIGHER GRANULARITY) ---
-    print("Preparing tasks with increased granularity (2 initial pieces)...")
+    # --- 2. PREPARE TASKS (REVERTIDO PARA BAIXA GRANULARIDADE) ---
+    print("Preparing tasks (1 initial piece)...")
     tasks = []
     task_id_counter = 0
 
-    # Outer loop: Place the first piece (Piece 0)
+    # Gera tarefas com apenas 1 peça inicial para minimizar o overhead
     for config in search_configs:
-        for first_candidate in config['candidates']:
-            # Inicializa tiling como NumPy array, usando -1 para indicar uma célula vazia
-            tiling1 = np.full((3, 3, 3), -1, dtype=np.int8)
-            tiling1[config['start_pos'][0], config['start_pos'][1]] = first_candidate
+        for candidate in config['candidates']:
+            # Inicializa o tiling como um array NumPy
+            tiling = np.full((3, 3, 3), -1, dtype=np.int8)
+            tiling[config['start_pos'][0], config['start_pos'][1]] = candidate
             
-            available_pieces1 = set(range(1, 9))
+            # As peças de 1 a 8 estão disponíveis
+            available_pieces = set(range(1, 9))
             
-            uf1 = UnionFind(NUM_NODES)
-            (piece1, side1, orientation1) = first_candidate
-            pos1 = config['start_pos'][0] * 3 + config['start_pos'][1]
-            for road in game_tiles[piece1][side1]["roads"]:
+            # Cria a estrutura UnionFind para a tarefa
+            uf = UnionFind(NUM_NODES)
+            (piece, side, orientation) = candidate
+            piece_pos = config['start_pos'][0] * 3 + config['start_pos'][1]
+            for road in game_tiles[piece][side]["roads"]:
                 l_conn1, l_conn2 = road['connection']
-                g_id1 = TILE_NODES[pos1][(l_conn1 + orientation1) % 4]
-                g_id2 = TILE_NODES[pos1][(l_conn2 + orientation1) % 4]
-                uf1.union(g_id1, g_id2)
+                g_id1 = TILE_NODES[piece_pos][(l_conn1 + orientation) % 4]
+                g_id2 = TILE_NODES[piece_pos][(l_conn2 + orientation) % 4]
+                uf.union(g_id1, g_id2)
 
-            # Inner loop: Iterate through empty spots to place a second piece
-            for r2 in range(3):
-                for c2 in range(3):
-                    # --- ALTERAÇÃO AQUI: A verificação de célula vazia foi ajustada para NumPy ---
-                    if tiling1[r2, c2, 0] == -1: # Se a célula está vazia (valor da peça é -1)
-                        pos2 = r2 * 3 + c2
-                        
-                        second_piece_candidates = find_candidate_tiles(
-                            tiling1, pos2, available_pieces1, tile_connections
-                        )
-                        
-                        for second_candidate in second_piece_candidates:
-                            tiling2 = tiling1.copy()
-                            tiling2[r2, c2] = second_candidate
-
-                            (piece2, side2, orientation2) = second_candidate
-                            available_pieces2 = available_pieces1.copy()
-                            available_pieces2.remove(piece2)
-                            
-                            uf2 = uf1.copy()
-                            for road in game_tiles[piece2][side2]["roads"]:
-                                l_conn1, l_conn2 = road['connection']
-                                g_id1 = TILE_NODES[pos2][(l_conn1 + orientation2) % 4]
-                                g_id2 = TILE_NODES[pos2][(l_conn2 + orientation2) % 4]
-                                uf2.union(g_id1, g_id2)
-
-                            tasks.append({
-                                'id': task_id_counter,
-                                'tiling': tiling2,
-                                'available_pieces': available_pieces2,
-                                'uf_structure': uf2,
-                                'game_tiles': game_tiles,
-                                'tile_connections': tile_connections
-                            })
-                            task_id_counter += 1
+            # Empacota a tarefa
+            tasks.append({
+                'id': task_id_counter,
+                'tiling': tiling,
+                'available_pieces': available_pieces,
+                'uf_structure': uf,
+                'game_tiles': game_tiles,
+                'tile_connections': tile_connections
+            })
+            task_id_counter += 1
 
     # --- 3. RUN IN PARALLEL ---
     cpu_count = os.cpu_count()
