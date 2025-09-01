@@ -132,20 +132,18 @@ def find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_conn
         del new_domains[best_next_cell]
         
         dead_end_found = False
-        # 2. Itera sobre as outras células vazias e atualiza seus candidatos
-        for (empty_r, empty_c), old_candidates in new_domains.items():
-            # Só precisa recalcular se a peça que acabamos de usar estava em sua lista de candidatos
-            if any(p == piece for p, s, o in old_candidates):
-                empty_pos = empty_r * 3 + empty_c
-                # Recalcula os candidatos com base no tabuleiro e peças disponíveis ATUALIZADOS
-                updated_candidates = find_candidate_tiles(tiling, empty_pos, available_pieces, tile_connections)
-                
-                # Se uma célula vizinha ficar sem jogadas possíveis, este caminho é um beco sem saída
-                if not updated_candidates:
-                    dead_end_found = True
-                    break
-                
-                new_domains[(empty_r, empty_c)] = updated_candidates
+        for (empty_r, empty_c) in new_domains.keys():
+            # The erroneous 'if' condition has been removed.
+            # We now correctly re-evaluate every remaining empty cell's domain.
+            empty_pos = empty_r * 3 + empty_c
+            
+            updated_candidates = find_candidate_tiles(tiling, empty_pos, available_pieces, tile_connections)
+            
+            if not updated_candidates:
+                dead_end_found = True
+                break
+            
+            new_domains[(empty_r, empty_c)] = updated_candidates
 
         # 3. Se um beco sem saída foi encontrado, não continua a recursão
         if dead_end_found:
