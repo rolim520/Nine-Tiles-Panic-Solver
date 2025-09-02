@@ -102,17 +102,17 @@ def main():
         {
             "name": "Piece 0 at top-left corner",
             "start_pos": (0, 0),
-            "candidates": [(0, side, orient) for side in range(2) for orient in range(4)]
+            "candidates": [(8, side, orient) for side in range(2) for orient in range(4)]
         },
         {
             "name": "Piece 0 at top-center edge",
             "start_pos": (0, 1),
-            "candidates": [(0, side, orient) for side in range(2) for orient in range(4)]
+            "candidates": [(8, side, orient) for side in range(2) for orient in range(4)]
         },
         {
             "name": "Piece 0 at board center",
             "start_pos": (1, 1),
-            "candidates": [(0, 0, 0), (0, 1, 0)]
+            "candidates": [(8, 0, 0), (8, 1, 0)]
         }
     ]
 
