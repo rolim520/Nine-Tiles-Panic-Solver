@@ -104,65 +104,122 @@ def generate_image_task_wrapper(args):
     generate_tiling_image(args[0], args[1])
 
 # =============================================================================
-# FUNÇÕES DE PROCESSAMENTO DE DADOS (sem alterações)
+# FUNÇÕES DE PROCESSAMENTO DE DADOS (CORRIGIDAS)
 # =============================================================================
 
 def create_db_from_parquet(parquet_file_path):
+    """
+    Creates a VIEW pointing to the Parquet file instead of importing the data.
+    This is much faster and saves over 5GB of disk space and memory.
+    """
     os.makedirs(DATABASES_OUTPUT_DIR, exist_ok=True)
     con = duckdb.connect(MAIN_DB_PATH)
-    con.execute("PRAGMA memory_limit='24GB';")
-    tables = con.execute("SHOW TABLES;").fetchdf()
-    if 'solutions' in tables['name'].values:
-        print(f"✅ Tabela 'solutions' já existe em '{MAIN_DB_PATH}'. Pulando a ingestão.")
+    con.execute("PRAGMA memory_limit='20GB';")
+    con.execute(f"PRAGMA threads={os.cpu_count()};")
+    con.execute("PRAGMA enable_progress_bar=true;")
+
+    try:
+        views_df = con.execute("SELECT view_name FROM duckdb_views();").fetchdf()
+        view_exists = 'solutions' in views_df['view_name'].values
+    except duckdb.Error:
+        # This can fail if no views exist yet, which is fine.
+        view_exists = False
+
+    if view_exists:
+        print(f"✅ View 'solutions' já existe em '{MAIN_DB_PATH}'. Pulando a criação.")
         con.close()
         return
-    print(f"🚀 Iniciando a ingestão otimizada de '{parquet_file_path}' para '{MAIN_DB_PATH}'...")
+
+    print(f"🚀 Criando uma VIEW otimizada 'solutions' para '{parquet_file_path}'...")
+
     all_parquet_columns = STAT_COLUMNS[:]
     for r in range(3):
         for c in range(3):
             pos = f"{r}{c}"
             all_parquet_columns.extend([f"piece_{pos}", f"side_{pos}", f"orient_{pos}"])
-    definitions = ["solution_id UBIGINT"]
+    
     select_clauses = ["ROW_NUMBER() OVER () AS solution_id"]
     for col in all_parquet_columns:
-        col_type = 'UTINYINT'
-        definitions.append(f'"{col}" {col_type}')
-        select_clauses.append(f'CAST("{col}" AS {col_type}) AS "{col}"')
-    definitions_sql = ", ".join(definitions)
+        select_clauses.append(f'CAST("{col}" AS UTINYINT) AS "{col}"')
+    
     select_clauses_sql = ", ".join(select_clauses)
-    create_table_query = f"CREATE TABLE solutions ({definitions_sql});"
-    insert_data_query = f"INSERT INTO solutions SELECT {select_clauses_sql} FROM read_parquet('{parquet_file_path}');"
+    
+    create_view_query = f"""
+        CREATE OR REPLACE VIEW solutions AS
+        SELECT {select_clauses_sql}
+        FROM read_parquet('{parquet_file_path}');
+    """
+    
     try:
-        con.execute(create_table_query)
-        con.execute(insert_data_query)
-        print("✅ Banco de dados principal e tabela 'solutions' criados com sucesso.")
+        con.execute(create_view_query)
+        print("✅ View 'solutions' criada com sucesso.")
+        
+        # 🔥 CORREÇÃO: A linha 'ANALYZE' foi removida.
+        # Não é possível analisar uma VIEW, e não é necessário para Parquet.
+
     except Exception as e:
-        print(f"❌ ERRO durante a ingestão: {e}")
+        print(f"❌ ERRO durante a criação da view: {e}")
         con.close()
         sys.exit(1)
+        
     con.close()
 
 def calculate_percentiles():
-    print("\n🚀 Calculando frequências e percentis para todas as estatísticas...")
+    """
+    Calculates percentiles using a single UNPIVOT query.
+    This is much more efficient than the previous UNION ALL approach.
+    """
+    print("\n🚀 Calculando frequências e percentis para todas as estatísticas (Modo UNPIVOT)...")
     main_con = duckdb.connect(MAIN_DB_PATH, read_only=True)
-    main_con.execute("PRAGMA memory_limit='24GB';")
+    main_con.execute("PRAGMA memory_limit='20GB';")
+    main_con.execute(f"PRAGMA threads={os.cpu_count()};")
+    main_con.execute("PRAGMA enable_progress_bar=true;")
+    
     percentiles_con = duckdb.connect(PERCENTILES_DB_PATH)
     percentiles_con.execute("CREATE OR REPLACE TABLE stat_percentiles (stat_name VARCHAR, stat_value UTINYINT, frequency UBIGINT, percentile REAL);")
-    union_queries = [f"SELECT '{stat}' AS stat_name, \"{stat}\" AS stat_value, COUNT(*) AS frequency FROM solutions GROUP BY \"{stat}\"" for stat in STAT_COLUMNS]
-    full_query = "\nUNION ALL\n".join(union_queries)
-    final_query = f"WITH AllValueCounts AS ({full_query}) SELECT stat_name, CAST(stat_value AS UTINYINT), CAST(frequency AS UBIGINT), CAST((PERCENT_RANK() OVER (PARTITION BY stat_name ORDER BY stat_value)) * 100 AS REAL) FROM AllValueCounts;"
-    df = main_con.execute(final_query).fetchdf()
+
+    # Build a single, efficient UNPIVOT query
+    stat_columns_list = ", ".join([f'"{col}"' for col in STAT_COLUMNS])
+
+    unpivot_query = f"""
+        WITH ValueCounts AS (
+            -- First, get the frequency of each value for each statistic in a single pass.
+            SELECT
+                stat_name,
+                stat_value,
+                COUNT(*) as frequency
+            FROM (
+                UNPIVOT solutions
+                ON {stat_columns_list}
+                INTO NAME stat_name VALUE stat_value
+            ) AS unpivoted_data
+            GROUP BY stat_name, stat_value
+        )
+        -- Now, calculate the percentile rank based on the aggregated counts.
+        SELECT
+            stat_name,
+            CAST(stat_value AS UTINYINT),
+            CAST(frequency AS UBIGINT),
+            CAST((PERCENT_RANK() OVER (PARTITION BY stat_name ORDER BY stat_value)) * 100 AS REAL) as percentile
+        FROM ValueCounts;
+    """
+    
+    df = main_con.execute(unpivot_query).fetchdf()
     percentiles_con.execute("INSERT INTO stat_percentiles SELECT * FROM df")
+    
     percentiles_con.close()
     main_con.close()
     print(f"✅ Frequências e percentis salvos em '{PERCENTILES_DB_PATH}'.")
 
 def precompute_all_scores(game_cards):
-    print("\n🚀 Pré-calculando scores para todas as soluções...")
+    print("\n🚀 Pré-calculando scores para todas as soluções (Modo Otimizado para Memória)...")
     con = duckdb.connect(MAIN_DB_PATH, read_only=False)
-    con.execute("PRAGMA memory_limit='24GB';")
+    con.execute("PRAGMA memory_limit='20GB';")
+    con.execute(f"PRAGMA threads={os.cpu_count()};")
+    con.execute("PRAGMA enable_progress_bar=true;")
     os.makedirs(TEMP_DIR, exist_ok=True)
     con.execute(f"PRAGMA temp_directory='{TEMP_DIR}';")
+    
     try:
         con.execute(f"ATTACH '{PERCENTILES_DB_PATH}' AS percentiles_db (READ_ONLY);")
     except Exception as e:
@@ -172,58 +229,54 @@ def precompute_all_scores(game_cards):
     
     con.execute("DROP TABLE IF EXISTS solution_scores;")
     
-    pivot_aggregates = []
     scorable_cards = [card for card in game_cards if card.get('key')]
     
-    for card in scorable_cards:
-        score_logic = "u.percentile" if card.get('type') == 'max' else "100.0 - u.percentile"
-        
-        # <<< CORREÇÃO DEFINITIVA: Trocando FIRST() por MAX() >>>
-        # MAX() é a função de agregação correta e mais robusta para este tipo de pivoteamento manual.
-        aggregation = f"MAX(CASE WHEN u.stat_name = '{card['key']}' THEN {score_logic} ELSE NULL END)"
-        
-        pivot_aggregates.append(f"CAST({aggregation} AS REAL) AS card_{card['number']}_score")
-
-    pivot_sql = ",\n            ".join(pivot_aggregates)
-    super_score_sql = " + ".join([f"card_{card['number']}_score" for card in scorable_cards])
-    unpivot_cols_sql = ", ".join(f'"{col}"' for col in STAT_COLUMNS)
+    select_clauses = ["s.solution_id"]
+    join_clauses = []
     
+    for i, card in enumerate(scorable_cards):
+        key = card['key']
+        card_num = card['number']
+        card_type = card['type']
+        
+        alias = f"p{i}"
+        
+        score_logic = f"{alias}.percentile" if card_type == 'max' else f"100.0 - {alias}.percentile"
+        
+        select_clauses.append(f"CAST({score_logic} AS REAL) AS card_{card_num}_score")
+        
+        join_clauses.append(
+            f"""
+            LEFT JOIN percentiles_db.stat_percentiles AS {alias}
+            ON s."{key}" = {alias}.stat_value AND {alias}.stat_name = '{key}'
+            """
+        )
+
+    select_sql = ",\n       ".join(select_clauses)
+    join_sql = "\n".join(join_clauses)
+    super_score_sql = " + ".join([f"card_{card['number']}_score" for card in scorable_cards])
+
     full_query = f"""
         CREATE TABLE solution_scores AS
-        WITH unpivoted_solutions AS (
-            UNPIVOT solutions ON {unpivot_cols_sql} INTO NAME stat_name VALUE stat_value
-        ),
-        scored_stats AS (
-            SELECT u.solution_id, u.stat_name, p.percentile
-            FROM unpivoted_solutions u
-            JOIN percentiles_db.stat_percentiles p ON u.stat_name = p.stat_name AND u.stat_value = p.stat_value
-        ),
-        pivoted_scores AS (
-            SELECT solution_id, {pivot_sql} 
-            FROM scored_stats u 
-            GROUP BY solution_id
+        WITH ScoredSolutions AS (
+            SELECT
+                {select_sql}
+            FROM solutions s
+            {join_sql}
         )
         SELECT *, CAST({super_score_sql} AS REAL) AS super_score
-        FROM pivoted_scores;
+        FROM ScoredSolutions;
     """
     
-    print("  -> Executando a consulta de pivoteamento para criar scores...")
+    print("  -> Executando a consulta com múltiplos JOINs (eficiente em memória). Isso pode levar um tempo...")
     con.execute(full_query)
     
-    print("  -> Criando índice em super_score para desempate rápido...")
-    con.execute("CREATE INDEX IF NOT EXISTS idx_super_score ON solution_scores (super_score DESC);")
-    
     con.close()
-    print("✅ Tabela 'solution_scores' criada e indexada com sucesso.")
+    # 🔥 CORREÇÃO: Mensagem de sucesso atualizada, pois não há mais indexação.
+    print("✅ Tabela 'solution_scores' criada com sucesso.")
+
     
-# <<< MELHORIA 4 >>>
-# Função centralizada para adicionar tarefas de geração de imagem.
-# Isso evita a repetição de código e facilita a manutenção.
 def _add_image_task(row, combo_type, card_lookup, image_tasks, base_dirs):
-    """
-    Função auxiliar para criar nomes de arquivo/diretório e adicionar
-    uma tarefa de geração de imagem à lista de tarefas.
-    """
     score = row.get('best_score', row.get('super_score', 0))
     score_str = f"score_{int(score)}" if pd.notna(score) else "score_NA"
     
@@ -265,32 +318,33 @@ def _add_image_task(row, combo_type, card_lookup, image_tasks, base_dirs):
     image_path = os.path.join(output_dir, filename)
     image_tasks.append((row, image_path))
 
-# =============================================================================
-# FUNÇÃO PRINCIPAL DE BUSCA (VERSÃO CORRIGIDA E ROBUSTA)
-# =============================================================================
 def find_best_solutions_and_generate_maps(game_cards):
     """
-    Encontra as melhores soluções processando uma combinação de cada vez para
-    garantir a estabilidade e evitar o esgotamento do disco em hardware local.
+    Finds the best solutions using a highly optimized single-query approach for singles,
+    pairs, and trios, followed by a single batch-fetch query and robust DataFrame inserts.
     """
-    print("\n🚀 Encontrando melhores soluções (Modo Robusto de Memória de Disco)...")
+    # 🔥 REVISED PRINT STATEMENT
+    print("\n🚀 Finding best solutions...")
 
+    # --- Setup (no changes) ---
     best_con = duckdb.connect(BEST_SOLUTIONS_DB_PATH)
-    best_con.execute("PRAGMA memory_limit='24GB';")
+    best_con.execute("PRAGMA memory_limit='20GB';")
+    best_con.execute(f"PRAGMA threads={os.cpu_count()};")
+    best_con.execute("PRAGMA enable_progress_bar=true;")
     
-    main_con_read = duckdb.connect(MAIN_DB_PATH, read_only=True)
-    main_con_read.execute("PRAGMA memory_limit='24GB';")
-    main_con_read.execute(f"PRAGMA temp_directory='{TEMP_DIR}';")
+    main_con_read_path = MAIN_DB_PATH.replace('\\', '/')
+    best_con.execute(f"ATTACH '{main_con_read_path}' AS main_db (READ_ONLY);")
+    best_con.execute(f"PRAGMA temp_directory='{TEMP_DIR}';")
 
-    # --- Setup ---
-    # <<< CORREÇÃO: A linha problemática foi removida e a definição de 'layout_columns' está no lugar certo. >>>
-    layout_columns = [f's."piece_{r}{c}"' for r in range(3) for c in range(3)] + \
-                     [f's."side_{r}{c}"' for r in range(3) for c in range(3)] + \
-                     [f's."orient_{r}{c}"' for r in range(3) for c in range(3)]
-    layout_definitions = [f'"{col.split(".")[1][1:-1]}" UTINYINT' for col in layout_columns]
-    layout_columns_str = ", ".join(layout_columns)
+    layout_columns_list = [f's."piece_{r}{c}"' for r in range(3) for c in range(3)] + \
+                          [f's."side_{r}{c}"' for r in range(3) for c in range(3)] + \
+                          [f's."orient_{r}{c}"' for r in range(3) for c in range(3)]
+    layout_definitions = [f'"{col.split(".")[1][1:-1]}" UTINYINT' for col in layout_columns_list]
+    layout_columns_str = ", ".join(layout_columns_list)
     layout_definitions_str = ", ".join(layout_definitions)
     
+    clean_layout_columns = [col.split(".")[1][1:-1] for col in layout_columns_list]
+
     card_lookup = {card['number']: card['name'] for card in game_cards}
     scorable_card_ids = sorted([card['number'] for card in game_cards if card.get('key')])
     
@@ -304,127 +358,135 @@ def find_best_solutions_and_generate_maps(game_cards):
     image_tasks = []
 
     # --- 1. Melhores soluções para SINGLE cards ---
-    print("  -> Processando cartões individuais...")
+    # 🔥 REVISED PRINT STATEMENT
+    print("  -> Step 1/4: Finding best solutions for single cards...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_single_card (card_id UTINYINT, solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
-    for card_id in scorable_card_ids:
-        if best_con.execute(f"SELECT count(*) FROM best_single_card WHERE card_id={card_id}").fetchone()[0] > 0:
-            print(f"    -> Pulando cartão {card_id}, já processado.")
-            continue
-        print(f"    - Processando cartão individual: {card_id}")
-        query = f"""
-            WITH BestSolutionID AS (
-                SELECT solution_id, card_{card_id}_score as score
-                FROM solution_scores WHERE card_{card_id}_score IS NOT NULL
-                ORDER BY score DESC, super_score DESC LIMIT 1
-            )
-            SELECT {card_id} as card_id, bsi.solution_id, bsi.score as best_score, {layout_columns_str}
-            FROM BestSolutionID bsi JOIN solutions s ON bsi.solution_id = s.solution_id;
-        """
-        result_df = main_con_read.execute(query).fetchdf()
-        if not result_df.empty:
-            best_con.execute("INSERT INTO best_single_card SELECT * FROM result_df")
-            for _, row in result_df.iterrows():
-                _add_image_task(row, 'single', card_lookup, image_tasks, base_dirs)
+    
+    max_by_clauses_single = [f"max_by(solution_id, card_{cid}_score) AS id_{cid}" for cid in scorable_card_ids]
+    single_scan_query = f"SELECT {', '.join(max_by_clauses_single)} FROM main_db.solution_scores;"
+    best_ids_df_single = best_con.execute(single_scan_query).fetchdf()
+    
+    unique_best_ids = set(best_ids_df_single.iloc[0].values)
+    ids_str = ','.join(map(str, unique_best_ids))
+    details_query = f"SELECT s.solution_id, {layout_columns_str}, ss.* FROM main_db.solutions s JOIN main_db.solution_scores ss ON s.solution_id = ss.solution_id WHERE s.solution_id IN ({ids_str});"
+    all_details_df = best_con.execute(details_query).fetchdf()
 
+    rows_to_insert = []
+    for card_id in scorable_card_ids:
+        best_solution_id = best_ids_df_single[f'id_{card_id}'][0]
+        details_row = all_details_df[all_details_df['solution_id'] == best_solution_id].iloc[0]
+        
+        new_row_data = {'card_id': card_id, 'solution_id': best_solution_id, 'best_score': details_row[f'card_{card_id}_score']}
+        new_row_data.update(details_row[clean_layout_columns])
+        rows_to_insert.append(new_row_data)
+
+        task_row = details_row.copy(); task_row['card_id'] = card_id
+        _add_image_task(task_row, 'single', card_lookup, image_tasks, base_dirs)
+    
+    if rows_to_insert:
+        df_to_insert = pd.DataFrame(rows_to_insert)[['card_id', 'solution_id', 'best_score'] + clean_layout_columns]
+        best_con.execute("INSERT INTO best_single_card SELECT * FROM df_to_insert")
 
     # --- 2. Melhores soluções para PARES de cartões ---
-    print("  -> Processando pares de cartões...")
+    # 🔥 REVISED PRINT STATEMENT
+    print("  -> Step 2/4: Finding best solutions for card pairs...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_card_pairs (card_id_1 UTINYINT, card_id_2 UTINYINT, solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
     card_pairs = list(itertools.combinations(scorable_card_ids, 2))
+    
+    if card_pairs:
+        max_by_clauses_pairs = [f"max_by(solution_id, (card_{c1}_score + card_{c2}_score) / 2.0) AS id_{c1}_{c2}" for c1, c2 in card_pairs]
+        pair_scan_query = f"SELECT {', '.join(max_by_clauses_pairs)} FROM main_db.solution_scores;"
+        best_ids_df_pairs = best_con.execute(pair_scan_query).fetchdf()
 
-    for c1, c2 in card_pairs:
-        if best_con.execute(f"SELECT count(*) FROM best_card_pairs WHERE card_id_1={c1} AND card_id_2={c2}").fetchone()[0] > 0:
-            print(f"    -> Pulando par {c1}-{c2}, já processado.")
-            continue
-        print(f"    - Processando par: {c1}-{c2}")
-        
-        score_col1, score_col2 = f"card_{c1}_score", f"card_{c2}_score"
-        query = f"""
-            WITH BestSolutionID AS (
-                SELECT solution_id, ({score_col1} + {score_col2}) / 2.0 AS score
-                FROM solution_scores
-                WHERE {score_col1} IS NOT NULL AND {score_col2} IS NOT NULL
-                ORDER BY score DESC, super_score DESC
-                LIMIT 1
-            )
-            SELECT {c1} as c1, {c2} as c2, bsi.solution_id, bsi.score as best_score, {layout_columns_str}
-            FROM BestSolutionID bsi JOIN solutions s ON bsi.solution_id = s.solution_id;
-        """
-        result_df = main_con_read.execute(query).fetchdf()
-        if not result_df.empty:
-            result_df_insert = result_df.rename(columns={'c1': 'card_id_1', 'c2': 'card_id_2'})
-            best_con.execute("INSERT INTO best_card_pairs SELECT * FROM result_df_insert")
-            for _, row in result_df.iterrows():
-                row_copy = row.copy()
-                row_copy['c1'], row_copy['c2'] = c1, c2
-                _add_image_task(row_copy, 'pair', card_lookup, image_tasks, base_dirs)
+        unique_best_ids_pairs = set(best_ids_df_pairs.iloc[0].values)
+        ids_str_pairs = ','.join(map(str, unique_best_ids_pairs))
+        details_query_pairs = f"SELECT s.solution_id, {layout_columns_str}, ss.* FROM main_db.solutions s JOIN main_db.solution_scores ss ON s.solution_id = ss.solution_id WHERE s.solution_id IN ({ids_str_pairs});"
+        all_details_df_pairs = best_con.execute(details_query_pairs).fetchdf()
+
+        rows_to_insert_pairs = []
+        for c1, c2 in card_pairs:
+            best_solution_id = best_ids_df_pairs[f'id_{c1}_{c2}'][0]
+            details_row = all_details_df_pairs[all_details_df_pairs['solution_id'] == best_solution_id].iloc[0]
+            score = (details_row[f'card_{c1}_score'] + details_row[f'card_{c2}_score']) / 2.0
+            
+            new_row_data = {'card_id_1': c1, 'card_id_2': c2, 'solution_id': best_solution_id, 'best_score': score}
+            new_row_data.update(details_row[clean_layout_columns])
+            rows_to_insert_pairs.append(new_row_data)
+            
+            task_row = details_row.copy(); task_row['c1'], task_row['c2'], task_row['best_score'] = c1, c2, score
+            _add_image_task(task_row, 'pair', card_lookup, image_tasks, base_dirs)
+
+        if rows_to_insert_pairs:
+            df_to_insert = pd.DataFrame(rows_to_insert_pairs)[['card_id_1', 'card_id_2', 'solution_id', 'best_score'] + clean_layout_columns]
+            best_con.execute("INSERT INTO best_card_pairs SELECT * FROM df_to_insert")
 
     # --- 3. Melhores soluções para TRIOS de cartões ---
-    print("  -> Processando trios de cartões...")
+    # 🔥 REVISED PRINT STATEMENT
+    print("  -> Step 3/4: Finding best solutions for card trios...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_card_trios (card_id_1 UTINYINT, card_id_2 UTINYINT, card_id_3 UTINYINT, solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
     card_trios = list(itertools.combinations(scorable_card_ids, 3))
 
-    for c1, c2, c3 in card_trios:
-        if best_con.execute(f"SELECT count(*) FROM best_card_trios WHERE card_id_1={c1} AND card_id_2={c2} AND card_id_3={c3}").fetchone()[0] > 0:
-            print(f"    -> Pulando trio {c1}-{c2}-{c3}, já processado.")
-            continue
-        print(f"    - Processando trio: {c1}-{c2}-{c3}")
-        
-        score_col1, score_col2, score_col3 = f"card_{c1}_score", f"card_{c2}_score", f"card_{c3}_score"
-        query = f"""
-            WITH BestSolutionID AS (
-                SELECT solution_id, ({score_col1} + {score_col2} + {score_col3}) / 3.0 AS score
-                FROM solution_scores
-                WHERE {score_col1} IS NOT NULL AND {score_col2} IS NOT NULL AND {score_col3} IS NOT NULL
-                ORDER BY score DESC, super_score DESC
-                LIMIT 1
-            )
-            SELECT {c1} as c1, {c2} as c2, {c3} as c3, bsi.solution_id, bsi.score as best_score, {layout_columns_str}
-            FROM BestSolutionID bsi JOIN solutions s ON bsi.solution_id = s.solution_id;
-        """
-        result_df = main_con_read.execute(query).fetchdf()
-        if not result_df.empty:
-            result_df_insert = result_df.rename(columns={'c1': 'card_id_1', 'c2': 'card_id_2', 'c3': 'card_id_3'})
-            best_con.execute("INSERT INTO best_card_trios SELECT * FROM result_df_insert")
-            for _, row in result_df.iterrows():
-                row_copy = row.copy()
-                row_copy['c1'], row_copy['c2'], row_copy['c3'] = c1, c2, c3
-                _add_image_task(row_copy, 'trio', card_lookup, image_tasks, base_dirs)
-    
+    if card_trios:
+        max_by_clauses_trios = [f"max_by(solution_id, (card_{c1}_score + card_{c2}_score + card_{c3}_score) / 3.0) AS id_{c1}_{c2}_{c3}" for c1, c2, c3 in card_trios]
+        trio_scan_query = f"SELECT {', '.join(max_by_clauses_trios)} FROM main_db.solution_scores;"
+        best_ids_df_trios = best_con.execute(trio_scan_query).fetchdf()
+
+        unique_best_ids_trios = set(best_ids_df_trios.iloc[0].values)
+        ids_str_trios = ','.join(map(str, unique_best_ids_trios))
+        details_query_trios = f"SELECT s.solution_id, {layout_columns_str}, ss.* FROM main_db.solutions s JOIN main_db.solution_scores ss ON s.solution_id = ss.solution_id WHERE s.solution_id IN ({ids_str_trios});"
+        all_details_df_trios = best_con.execute(details_query_trios).fetchdf()
+
+        rows_to_insert_trios = []
+        for c1, c2, c3 in card_trios:
+            best_solution_id = best_ids_df_trios[f'id_{c1}_{c2}_{c3}'][0]
+            details_row = all_details_df_trios[all_details_df_trios['solution_id'] == best_solution_id].iloc[0]
+            score = (details_row[f'card_{c1}_score'] + details_row[f'card_{c2}_score'] + details_row[f'card_{c3}_score']) / 3.0
+            
+            new_row_data = {'card_id_1': c1, 'card_id_2': c2, 'card_id_3': c3, 'solution_id': best_solution_id, 'best_score': score}
+            new_row_data.update(details_row[clean_layout_columns])
+            rows_to_insert_trios.append(new_row_data)
+            
+            task_row = details_row.copy(); task_row['c1'], task_row['c2'], task_row['c3'], task_row['best_score'] = c1, c2, c3, score
+            _add_image_task(task_row, 'trio', card_lookup, image_tasks, base_dirs)
+
+        if rows_to_insert_trios:
+            df_to_insert = pd.DataFrame(rows_to_insert_trios)[['card_id_1', 'card_id_2', 'card_id_3', 'solution_id', 'best_score'] + clean_layout_columns]
+            best_con.execute("INSERT INTO best_card_trios SELECT * FROM df_to_insert")
+
     # --- 4. Melhor solução geral ---
-    # (A lógica aqui não foi alterada)
-    print(f"  -> Processando a melhor solução geral...")
+    # 🔥 REVISED PRINT STATEMENT
+    print("  -> Step 4/4: Finding the best overall solution...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_overall_solution (solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
-    if best_con.execute("SELECT count(*) FROM best_overall_solution").fetchone()[0] == 0:
-        least_columns = ", ".join([f"card_{cid}_score" for cid in scorable_card_ids])
-        query = f"""
-            WITH bsi AS (
-                SELECT solution_id, super_score / {float(len(scorable_card_ids))} AS best_score
-                FROM solution_scores ORDER BY best_score DESC, LEAST({least_columns}) DESC LIMIT 1
-            )
-            SELECT s.solution_id, bsi.best_score, {layout_columns_str}
-            FROM solutions s JOIN bsi ON s.solution_id = bsi.solution_id;
-        """
-        result_df = main_con_read.execute(query).fetchdf()
+    
+    overall_query = "SELECT max_by(solution_id, super_score) as best_id FROM main_db.solution_scores"
+    best_overall_id = best_con.execute(overall_query).fetchdf()['best_id'][0]
 
-        if not result_df.empty:
-            best_con.execute("INSERT INTO best_overall_solution SELECT * FROM result_df")
-            _add_image_task(result_df.iloc[0], 'overall', card_lookup, image_tasks, base_dirs)
-    else:
-        print("    -> Pulando, solução geral já calculada.")
+    details_query_overall = f"SELECT s.solution_id, {layout_columns_str}, ss.* FROM main_db.solutions s JOIN main_db.solution_scores ss ON s.solution_id = ss.solution_id WHERE s.solution_id = {best_overall_id};"
+    details_df_overall = best_con.execute(details_query_overall).fetchdf()
 
-    main_con_read.close()
+    if not details_df_overall.empty:
+        details_row = details_df_overall.iloc[0]
+        score = details_row['super_score'] / float(len(scorable_card_ids))
+        
+        new_row_data = {'solution_id': best_overall_id, 'best_score': score}
+        new_row_data.update(details_row[clean_layout_columns])
+        
+        df_to_insert = pd.DataFrame([new_row_data])[['solution_id', 'best_score'] + clean_layout_columns]
+        best_con.execute("INSERT INTO best_overall_solution SELECT * FROM df_to_insert")
+        
+        _add_image_task(details_row, 'overall', card_lookup, image_tasks, base_dirs)
+
+    # --- Cleanup and Image Generation ---
     best_con.close()
-    print(f"✅ Melhores soluções salvas em '{BEST_SOLUTIONS_DB_PATH}'.")
+    print(f"✅ Best solutions saved to '{BEST_SOLUTIONS_DB_PATH}'.")
 
-    # --- Geração de imagens em paralelo ---
     if not image_tasks:
-        print("\nNenhuma imagem para gerar.")
+        print("\nNo images to generate.")
         return
 
     if __name__ == '__main__':
         cpu_cores = os.cpu_count() or 1
-        print(f"\n🚀 Gerando {len(image_tasks)} imagens de mapa em paralelo usando {cpu_cores} núcleos...")
+        print(f"\n🚀 Generating {len(image_tasks)} map images in parallel using {cpu_cores} cores...")
         with multiprocessing.Pool(cpu_cores, initializer=init_worker) as pool:
             try:
                 from tqdm import tqdm
@@ -432,7 +494,7 @@ def find_best_solutions_and_generate_maps(game_cards):
                     pass
             except ImportError:
                 pool.map(generate_image_task_wrapper, image_tasks)
-        print("✅ Todas as imagens foram geradas com sucesso.")
+        print("✅ All images were generated successfully.")
 
 # =============================================================================
 # EXECUTOR PRINCIPAL
