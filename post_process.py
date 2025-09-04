@@ -212,11 +212,12 @@ def calculate_percentiles():
     print(f"✅ Frequências e percentis salvos em '{PERCENTILES_DB_PATH}'.")
 
 def precompute_all_scores(game_cards):
-    print("\n🚀 Pré-calculando scores para todas as soluções (Modo Otimizado para Memória)...")
+    print("\n🚀 Pre-calculating scores (using Geometric Mean for super_score)...")
     con = duckdb.connect(MAIN_DB_PATH, read_only=False)
     con.execute("PRAGMA memory_limit='20GB';")
     con.execute(f"PRAGMA threads={os.cpu_count()};")
     con.execute("PRAGMA enable_progress_bar=true;")
+    
     os.makedirs(TEMP_DIR, exist_ok=True)
     con.execute(f"PRAGMA temp_directory='{TEMP_DIR}';")
     
@@ -226,55 +227,48 @@ def precompute_all_scores(game_cards):
         print(f"❌ Falha ao anexar o banco de dados de percentis: {e}")
         con.close()
         return
-    
+        
     con.execute("DROP TABLE IF EXISTS solution_scores;")
-    
     scorable_cards = [card for card in game_cards if card.get('key')]
     
     select_clauses = ["s.solution_id"]
     join_clauses = []
-    
     for i, card in enumerate(scorable_cards):
         key = card['key']
         card_num = card['number']
         card_type = card['type']
-        
         alias = f"p{i}"
-        
         score_logic = f"{alias}.percentile" if card_type == 'max' else f"100.0 - {alias}.percentile"
-        
         select_clauses.append(f"CAST({score_logic} AS REAL) AS card_{card_num}_score")
+        join_clauses.append(f"""LEFT JOIN percentiles_db.stat_percentiles AS {alias} ON s."{key}" = {alias}.stat_value AND {alias}.stat_name = '{key}'""")
         
-        join_clauses.append(
-            f"""
-            LEFT JOIN percentiles_db.stat_percentiles AS {alias}
-            ON s."{key}" = {alias}.stat_value AND {alias}.stat_name = '{key}'
-            """
-        )
-
     select_sql = ",\n       ".join(select_clauses)
     join_sql = "\n".join(join_clauses)
-    super_score_sql = " + ".join([f"card_{card['number']}_score" for card in scorable_cards])
+    score_columns = [f"card_{card['number']}_score" for card in scorable_cards]
+    num_scorable_cards = len(score_columns)
+    
+    clean_scores = [f"GREATEST(0, COALESCE({col}, 0))" for col in score_columns]
+    zero_check_sql = " OR ".join([f"{cs} = 0" for cs in clean_scores])
+    log_sum_sql = " + ".join([f"LN({cs})" for cs in clean_scores])
+    stable_geometric_mean_sql = f"EXP(({log_sum_sql}) / {float(num_scorable_cards)})"
+    
+    super_score_sql = f"""
+        CASE
+            WHEN {zero_check_sql} THEN 0.0
+            ELSE {stable_geometric_mean_sql}
+        END
+    """
 
     full_query = f"""
         CREATE TABLE solution_scores AS
-        WITH ScoredSolutions AS (
-            SELECT
-                {select_sql}
-            FROM solutions s
-            {join_sql}
-        )
-        SELECT *, CAST({super_score_sql} AS REAL) AS super_score
-        FROM ScoredSolutions;
+        WITH ScoredSolutions AS (SELECT {select_sql} FROM solutions s {join_sql})
+        SELECT *, CAST({super_score_sql} AS REAL) AS super_score FROM ScoredSolutions;
     """
     
-    print("  -> Executando a consulta com múltiplos JOINs (eficiente em memória). Isso pode levar um tempo...")
+    print("  -> Executing query with multiple JOINs and stable geometric mean. This may take a while...")
     con.execute(full_query)
-    
     con.close()
-    # 🔥 CORREÇÃO: Mensagem de sucesso atualizada, pois não há mais indexação.
-    print("✅ Tabela 'solution_scores' criada com sucesso.")
-
+    print("✅ Table 'solution_scores' created successfully.")
     
 def _add_image_task(row, combo_type, card_lookup, image_tasks, base_dirs):
     score = row.get('best_score', row.get('super_score', 0))
@@ -320,11 +314,10 @@ def _add_image_task(row, combo_type, card_lookup, image_tasks, base_dirs):
 
 def find_best_solutions_and_generate_maps(game_cards):
     """
-    Finds the best solutions using a highly optimized single-query approach for singles,
-    pairs, and trios, followed by a single batch-fetch query and robust DataFrame inserts.
+    Finds the best solutions using the Geometric Mean to reward balanced combinations,
+    followed by a single batch-fetch query and robust DataFrame inserts.
     """
-    # 🔥 REVISED PRINT STATEMENT
-    print("\n🚀 Finding best solutions...")
+    print("\n🚀 Finding best solutions (using Geometric Mean)...")
 
     # --- Setup (no changes) ---
     best_con = duckdb.connect(BEST_SOLUTIONS_DB_PATH)
@@ -358,7 +351,6 @@ def find_best_solutions_and_generate_maps(game_cards):
     image_tasks = []
 
     # --- 1. Melhores soluções para SINGLE cards ---
-    # 🔥 REVISED PRINT STATEMENT
     print("  -> Step 1/4: Finding best solutions for single cards...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_single_card (card_id UTINYINT, solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
     
@@ -376,11 +368,12 @@ def find_best_solutions_and_generate_maps(game_cards):
         best_solution_id = best_ids_df_single[f'id_{card_id}'][0]
         details_row = all_details_df[all_details_df['solution_id'] == best_solution_id].iloc[0]
         
-        new_row_data = {'card_id': card_id, 'solution_id': best_solution_id, 'best_score': details_row[f'card_{card_id}_score']}
+        best_score = details_row[f'card_{card_id}_score']
+        new_row_data = {'card_id': card_id, 'solution_id': best_solution_id, 'best_score': best_score}
         new_row_data.update(details_row[clean_layout_columns])
         rows_to_insert.append(new_row_data)
 
-        task_row = details_row.copy(); task_row['card_id'] = card_id
+        task_row = details_row.copy(); task_row['card_id'] = card_id; task_row['best_score'] = best_score 
         _add_image_task(task_row, 'single', card_lookup, image_tasks, base_dirs)
     
     if rows_to_insert:
@@ -388,13 +381,13 @@ def find_best_solutions_and_generate_maps(game_cards):
         best_con.execute("INSERT INTO best_single_card SELECT * FROM df_to_insert")
 
     # --- 2. Melhores soluções para PARES de cartões ---
-    # 🔥 REVISED PRINT STATEMENT
     print("  -> Step 2/4: Finding best solutions for card pairs...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_card_pairs (card_id_1 UTINYINT, card_id_2 UTINYINT, solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
     card_pairs = list(itertools.combinations(scorable_card_ids, 2))
     
     if card_pairs:
-        max_by_clauses_pairs = [f"max_by(solution_id, (card_{c1}_score + card_{c2}_score) / 2.0) AS id_{c1}_{c2}" for c1, c2 in card_pairs]
+        # 🔥 CHANGE: Using Geometric Mean for scoring
+        max_by_clauses_pairs = [f"max_by(solution_id, pow(card_{c1}_score * card_{c2}_score, 1/2.0)) AS id_{c1}_{c2}" for c1, c2 in card_pairs]
         pair_scan_query = f"SELECT {', '.join(max_by_clauses_pairs)} FROM main_db.solution_scores;"
         best_ids_df_pairs = best_con.execute(pair_scan_query).fetchdf()
 
@@ -407,7 +400,8 @@ def find_best_solutions_and_generate_maps(game_cards):
         for c1, c2 in card_pairs:
             best_solution_id = best_ids_df_pairs[f'id_{c1}_{c2}'][0]
             details_row = all_details_df_pairs[all_details_df_pairs['solution_id'] == best_solution_id].iloc[0]
-            score = (details_row[f'card_{c1}_score'] + details_row[f'card_{c2}_score']) / 2.0
+            # 🔥 CHANGE: Using Geometric Mean for scoring
+            score = (details_row[f'card_{c1}_score'] * details_row[f'card_{c2}_score']) ** (1/2.0)
             
             new_row_data = {'card_id_1': c1, 'card_id_2': c2, 'solution_id': best_solution_id, 'best_score': score}
             new_row_data.update(details_row[clean_layout_columns])
@@ -421,13 +415,13 @@ def find_best_solutions_and_generate_maps(game_cards):
             best_con.execute("INSERT INTO best_card_pairs SELECT * FROM df_to_insert")
 
     # --- 3. Melhores soluções para TRIOS de cartões ---
-    # 🔥 REVISED PRINT STATEMENT
     print("  -> Step 3/4: Finding best solutions for card trios...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_card_trios (card_id_1 UTINYINT, card_id_2 UTINYINT, card_id_3 UTINYINT, solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
     card_trios = list(itertools.combinations(scorable_card_ids, 3))
 
     if card_trios:
-        max_by_clauses_trios = [f"max_by(solution_id, (card_{c1}_score + card_{c2}_score + card_{c3}_score) / 3.0) AS id_{c1}_{c2}_{c3}" for c1, c2, c3 in card_trios]
+        # 🔥 CHANGE: Using Geometric Mean for scoring
+        max_by_clauses_trios = [f"max_by(solution_id, pow(card_{c1}_score * card_{c2}_score * card_{c3}_score, 1/3.0)) AS id_{c1}_{c2}_{c3}" for c1, c2, c3 in card_trios]
         trio_scan_query = f"SELECT {', '.join(max_by_clauses_trios)} FROM main_db.solution_scores;"
         best_ids_df_trios = best_con.execute(trio_scan_query).fetchdf()
 
@@ -440,7 +434,8 @@ def find_best_solutions_and_generate_maps(game_cards):
         for c1, c2, c3 in card_trios:
             best_solution_id = best_ids_df_trios[f'id_{c1}_{c2}_{c3}'][0]
             details_row = all_details_df_trios[all_details_df_trios['solution_id'] == best_solution_id].iloc[0]
-            score = (details_row[f'card_{c1}_score'] + details_row[f'card_{c2}_score'] + details_row[f'card_{c3}_score']) / 3.0
+            # 🔥 CHANGE: Using Geometric Mean for scoring
+            score = (details_row[f'card_{c1}_score'] * details_row[f'card_{c2}_score'] * details_row[f'card_{c3}_score']) ** (1/3.0)
             
             new_row_data = {'card_id_1': c1, 'card_id_2': c2, 'card_id_3': c3, 'solution_id': best_solution_id, 'best_score': score}
             new_row_data.update(details_row[clean_layout_columns])
@@ -454,7 +449,6 @@ def find_best_solutions_and_generate_maps(game_cards):
             best_con.execute("INSERT INTO best_card_trios SELECT * FROM df_to_insert")
 
     # --- 4. Melhor solução geral ---
-    # 🔥 REVISED PRINT STATEMENT
     print("  -> Step 4/4: Finding the best overall solution...")
     best_con.execute(f"CREATE OR REPLACE TABLE best_overall_solution (solution_id UBIGINT, best_score REAL, {layout_definitions_str});")
     
@@ -466,7 +460,7 @@ def find_best_solutions_and_generate_maps(game_cards):
 
     if not details_df_overall.empty:
         details_row = details_df_overall.iloc[0]
-        score = details_row['super_score'] / float(len(scorable_card_ids))
+        score = details_row['super_score']
         
         new_row_data = {'solution_id': best_overall_id, 'best_score': score}
         new_row_data.update(details_row[clean_layout_columns])
@@ -474,7 +468,8 @@ def find_best_solutions_and_generate_maps(game_cards):
         df_to_insert = pd.DataFrame([new_row_data])[['solution_id', 'best_score'] + clean_layout_columns]
         best_con.execute("INSERT INTO best_overall_solution SELECT * FROM df_to_insert")
         
-        _add_image_task(details_row, 'overall', card_lookup, image_tasks, base_dirs)
+        task_row = details_row.copy(); task_row['best_score'] = score
+        _add_image_task(task_row, 'overall', card_lookup, image_tasks, base_dirs)
 
     # --- Cleanup and Image Generation ---
     best_con.close()
