@@ -92,56 +92,49 @@ The analysis follows these steps:
   * **Tile Data**: The properties of each tile (items, road connections, etc.) are defined in `game/tiles/tiles.json`.
 
   ```json
-     [
-          {
-               "houses": 0,
-               "ufos": 0,
-               "girls": 0,
-               "boys": 1,
-               "dogs": 0,
-               "hamburgers": 1,
-               "aliens": 0,
-               "agents": 0,
-               "captured_aliens": 0,
-               "curves": 0,
-               "roads": [
-                    {
-                    "connection": [0,2],
-                    "item": "",
-                    "direction": -1
-                    },
-                    {
-                    "connection": [1,3],
-                    "item": "hamburger",
-                    "direction": -1
-                    }
-               ]
-          },
-          ...
-    ],
-    ...
+{
+      "houses": 0,
+      "ufos": 0,
+      "girls": 0,
+      "boys": 1,
+      "dogs": 0,
+      "hamburgers": 1,
+      "aliens": 0,
+      "agents": 0,
+      "captured_aliens": 0,
+      "curves": 0,
+      "roads": [
+           {
+           "connection": [0,2],
+           "item": "",
+           "direction": -1
+           },
+           {
+           "connection": [1,3],
+           "item": "hamburger",
+           "direction": -1
+           }
+      ]
+ },
   ``` 
 
   * **Card Objectives**: The scoring cards and the specific statistic they correspond to are defined in `game/cards/cards.json`.
 
   ```json
-     [
-          {
-               "number": 1,
-               "name": "Capture",
-               "description": "Most Aliens caught",
-               "key": "total_captured_aliens",
-               "type": "max"
-          },
-          {
-               "number": 2,
-               "name": "Surrounded",
-               "description": "Most Aliens stuck between 2 Agents",
-               "key": "max_aliens_between_two_agents",
-               "type": "max"
-          },
-          ...
-     ]
+{
+      "number": 1,
+      "name": "Capture",
+      "description": "Most Aliens caught",
+      "key": "total_captured_aliens",
+      "type": "max"
+ },
+ {
+      "number": 2,
+      "name": "Surrounded",
+      "description": "Most Aliens stuck between 2 Agents",
+      "key": "max_aliens_between_two_agents",
+      "type": "max"
+ },
   ```
 
 ### Individual Card Score (Percentile Rank)
