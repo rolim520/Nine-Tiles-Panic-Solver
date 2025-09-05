@@ -17,7 +17,7 @@ This repository contains a comprehensive solver and analysis suite for the board
     * [Phase 2: Post-Processing and Analysis](#phase-2-post-processing-and-analysis)
 5.  [Game Modeling and Scoring System](#game-modeling-and-scoring-system)
     * [Board and Tile Representation](#board-and-tile-representation)
-    * [Individual Card Score (Percentile Rank)](#individual-card-score-percentile-rank)
+    * [Individual Card Score (Rank-Based Score)](#individual-card-score-rank-based-score)
     * [Combined Score (Geometric Mean)](#combined-score-geometric-mean)
 6.  [How to Run the Code](#how-to-run-the-code)
 7.  [Results and Directory Structure](#results-and-directory-structure)
@@ -77,14 +77,13 @@ Once all solutions are generated into a 5 GB Parquet file, `post_process.py` tak
 The analysis follows these steps:
 
 1.  **Create a Database View**: A DuckDB view is created that points directly to the Parquet file. This is an instantaneous, zero-copy operation.
-2.  **Calculate Percentiles**: To create a fair scoring system, the script first calculates the percentile rank for every possible value of every statistic across all 2.9 billion solutions. For example, it determines that a board with 5 houses is in the 98th percentile among all solutions. This is done with a single, efficient `UNPIVOT` query.
+2.  **Calculate Percentiles**: To create a fair scoring system, the script first identifies all unique possible values for each statistic (e.g., the possible values for 'total houses' might be 0, 1, 2, 3, 4, 5). It then assigns a score to each of these values based on its rank, creating a uniform scale. For example, if there are 6 possible outcomes for houses, they are mapped to scores of 0, 20, 40, 60, 80, and 100. This is done with a single, efficient `UNPIVOT` and `PERCENT_RANK` query.
 3.  **Pre-compute All Scores**: A new table, `solution_scores`, is created. In this table, every solution is scored from 0 to 100 for each of the 26 scoring cards based on the pre-calculated percentiles.
 4.  **Find the Best**: The script then queries the `solution_scores` table to find the optimal solution for every combination:
       * The single best solution for each of the 26 cards.
       * The best solution for all 325 unique pairs of cards.
       * The best solution for all 2,600 unique trios of cards.
       * The single best "overall" solution.
-5.  **Generate Images**: For each "best" solution found, a 3x3 PNG image of the board is generated and saved.
 
 -----
 
@@ -141,14 +140,14 @@ The analysis follows these steps:
  },
   ```
 
-### Individual Card Score (Percentile Rank)
+### Individual Card Score (Rank-Based Score)
 
-A solution's score for a single card is its **percentile rank** for the relevant statistic. This normalizes all objectives onto a consistent 0-100 scale where higher is always better.
+A solution's score for a single card is based on the **rank of its statistic's value** among all possible unique values for that statistic. This method normalizes all objectives onto a consistent 0-100 scale, where the score represents how good a value is relative to its other possible outcomes, regardless of how frequently each outcome occurs.
 
-  * **`max` type cards** (e.g., "Most houses"): The score is the direct percentile. A 98th percentile solution gets a score of 98.
-    $Score = Percentile$
-  * **`min` type cards** (e.g., "Fewest roads"): The score is the inverse of the percentile. A solution in the 10th percentile for roads (meaning it has very few) gets a score of 90.
-    $Score = 100 - Percentile$
+  * **`max` type cards** (e.g., "Most houses"): The score is the direct rank-based percentile. A value with the highest rank gets a score of 100.
+    $Score = RankPercentile$
+  * **`min` type cards** (e.g., "Fewest roads"): The score is the inverse of the rank-based percentile. A value with the lowest rank gets a score of 100.
+    $Score = 100 - RankPercentile$
 
 ### Combined Score (Geometric Mean)
 
@@ -165,7 +164,7 @@ To ensure numerical stability when multiplying many scores, the calculation is p
 
 ## How to Run the Code
 
-**Prerequisites:** Python 3.8+, DuckDB, Pandas, PyArrow, Numba, Pillow, and tqdm.
+**Prerequisites:** Python 3.8+, DuckDB, Pandas, PyArrow, Numba, and tqdm.
 
 ### Step 1: Generate Solutions
 
