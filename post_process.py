@@ -14,7 +14,7 @@ GAME_CARDS_PATH = 'game/cards/cards.json'
 SOURCE_SOLUTIONS_DIR = 'generated_solutions'
 
 # O diretório de saída para os arquivos JSON finais
-SOLUTIONS_OUTPUT_DIR = 'solutions'
+SOLUTIONS_OUTPUT_DIR = 'docs/data'
 DATABASES_OUTPUT_DIR = 'databases'
 TEMP_DIR = 'temp'
 
