@@ -25,7 +25,7 @@ This repository contains a comprehensive solver and analysis suite for the board
 
 **Nine Tiles Panic** is a real-time puzzle game where players race to build a 3x3 city grid using their set of nine double-sided tiles. In each round, three "Theme Cards" are revealed, which set the scoring objectives for everyone.  Players must arrange their tiles to create a valid road network while simultaneously trying to score as highly as possible on the three objectives. A town is considered valid only if all roads on adjacent tiles connect correctly and do not form closed loops.
 
-![](./docs/game.png)
+![](./images/game.png)
 
 ## The Goal: Finding the "Best" Town
 
