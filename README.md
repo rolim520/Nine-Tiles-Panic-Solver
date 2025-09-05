@@ -2,7 +2,7 @@
 
 This repository contains a comprehensive solver and analysis suite for the board game **Nine Tiles Panic**. The primary goal is to exhaustively generate every possible valid board configuration (~2.9 billion of them) and then perform a deep analysis to find the single "best" solution for any given combination of scoring cards.
 
-👉 You can try the interactive solver interface deployed on **GitHub Pages** here: [Nine Tiles Panic Solver Interface](https://rolim520.github.io/Nine-Tiles-Panic-Solver/)
+👉 You can try the interactive solution visualizer deployed on **GitHub Pages** here: [Nine Tiles Panic Solver Interface](https://rolim520.github.io/Nine-Tiles-Panic-Solver/)
 
 ![](./images/interface.png)
 
