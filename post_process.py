@@ -127,28 +127,16 @@ def calculate_percentiles():
     unpivot_query = f"""
         INSERT INTO stat_percentiles
         WITH ValueCounts AS (
-            -- 1. First, count the frequency of each value for each statistic
             SELECT stat_name, stat_value, COUNT(*) as frequency
             FROM (UNPIVOT solutions ON {stat_columns_list} INTO NAME stat_name VALUE stat_value) AS unpivoted_data
             GROUP BY stat_name, stat_value
-        ),
-        CumulativeDistribution AS (
-            -- 2. Then, calculate the cumulative frequency and the total count for each statistic
-            SELECT
-                stat_name,
-                stat_value,
-                frequency,
-                SUM(frequency) OVER (PARTITION BY stat_name ORDER BY stat_value) as cumulative_frequency,
-                SUM(frequency) OVER (PARTITION BY stat_name) as total_count
-            FROM ValueCounts
         )
-        -- 3. The final percentile is the cumulative frequency divided by the total count
         SELECT
             stat_name,
             CAST(stat_value AS UTINYINT),
             CAST(frequency AS UBIGINT),
-            CAST(cumulative_frequency AS DOUBLE) / CAST(total_count AS DOUBLE) * 100.0 AS percentile
-        FROM CumulativeDistribution;
+            CAST((PERCENT_RANK() OVER (PARTITION BY stat_name ORDER BY stat_value)) * 100 AS REAL) as percentile
+        FROM ValueCounts;
     """
 
     
