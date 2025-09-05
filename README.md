@@ -50,6 +50,7 @@ The search space for this puzzle is immense. Breaking it down, we have:
   * **Tile Orientation**: Each tile can be rotated in 4 ways, giving $4^9$ (262,144) orientation combinations.
 
 The total number of theoretical arrangements is:
+
 $$9! \times 2^9 \times 4^9 = 362,880 \times 512 \times 262,144 = 48,704,929,136,640$$
 
 This number is astronomically large. However, the vast majority of these are invalid because of the strict road connection rule. The solver's first job is to navigate this space to find only the valid layouts. This number is also accounting for the 4 city arrangement orientations, that physically represents the same board.
