@@ -361,3 +361,72 @@ def calculate_tiling_card_score(card_number, tiling_stats, stat_percentiles, gam
     
     if card_type == "min":
         return 100.0 - score
+    
+class UnionFind:
+    def __init__(self, size):
+        self.parent = list(range(size))
+
+    def find(self, i):
+        if self.parent[i] == i:
+            return i
+        self.parent[i] = self.find(self.parent[i])
+        return self.parent[i]
+
+    def union(self, i, j):
+        root_i = self.find(i)
+        root_j = self.find(j)
+        if root_i != root_j:
+            self.parent[root_i] = root_j
+            return False
+        return True
+
+def _get_tile_connections(tile_data, orientation):
+    connections = [0, 0, 0, 0]  # Esquerda, Topo, Direita, Baixo
+    if tile_data and tile_data.get("roads"):
+        for road in tile_data["roads"]:
+            c1, c2 = road['connection']
+            connections[(c1 + orientation) % 4] = 1
+            connections[(c2 + orientation) % 4] = 1
+    return connections
+
+def is_board_valid(board, game_tiles):
+    # Checa se o tabuleiro está completamente preenchido
+    if any(tile is None or tile[0] == -1 for row in board for tile in row):
+        return {'isValid': False, 'error': 'O tabuleiro não está completo.'}
+
+    # Checa conexões horizontais
+    for r in range(3):
+        for c in range(2):
+            tile1_data = board[r][c]
+            tile2_data = board[r][c+1]
+            tile1_conns = _get_tile_connections(game_tiles[tile1_data[0]][tile1_data[1]], tile1_data[2])
+            tile2_conns = _get_tile_connections(game_tiles[tile2_data[0]][tile2_data[1]], tile2_data[2])
+            if tile1_conns[2] != tile2_conns[0]: # Direita do tile1 vs. Esquerda do tile2
+                return {'isValid': False, 'error': f'Peças na linha {r+1} não se conectam corretamente.'}
+
+    # Checa conexões verticais
+    for r in range(2):
+        for c in range(3):
+            tile1_data = board[r][c]
+            tile2_data = board[r+1][c]
+            tile1_conns = _get_tile_connections(game_tiles[tile1_data[0]][tile1_data[1]], tile1_data[2])
+            tile2_conns = _get_tile_connections(game_tiles[tile2_data[0]][tile2_data[1]], tile2_data[2])
+            if tile1_conns[3] != tile2_conns[1]: # Baixo do tile1 vs. Topo do tile2
+                return {'isValid': False, 'error': f'Peças na coluna {c+1} não se conectam corretamente.'}
+
+    # Checa por ciclos
+    uf = UnionFind(24)
+    for r in range(3):
+        for c in range(3):
+            piece, side, orientation = board[r][c]
+            tile_data = game_tiles[piece][side]
+            if tile_data.get("roads"):
+                for road in tile_data["roads"]:
+                    c1, c2 = road['connection']
+                    pos = r * 3 + c
+                    g1 = TILE_NODES[pos][(c1 + orientation) % 4]
+                    g2 = TILE_NODES[pos][(c2 + orientation) % 4]
+                    if uf.union(g1, g2):
+                        return {'isValid': False, 'error': 'Ciclo detectado na rede de estradas.'}
+
+    return {'isValid': True, 'error': None}

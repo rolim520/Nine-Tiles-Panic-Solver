@@ -7,7 +7,8 @@ import glob
 import numpy as np
 import pandas as pd
 
-from solver import UnionFind, generate_tile_connections, find_valid_tilings_generator, find_candidate_tiles
+from solver import generate_tile_connections, find_valid_tilings_generator, find_candidate_tiles
+from analysis import UnionFind
 from utils import SolutionWriter, get_next_filename
 from constants import NUM_NODES, TILE_NODES
 

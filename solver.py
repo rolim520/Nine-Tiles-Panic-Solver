@@ -4,40 +4,6 @@ import numpy as np
 from numba import njit
 from constants import TILE_NODES, NUM_NODES
 
-class UnionFind:
-    """A class for the Union-Find data structure with cycle detection."""
-    def __init__(self, size):
-        # Initialize with each node as its own parent.
-        self.parent = list(range(size))
-
-    def find(self, i):
-        """Finds the root of element i with path compression."""
-        if self.parent[i] == i:
-            return i
-        # Path compression for efficiency
-        self.parent[i] = self.find(self.parent[i])
-        return self.parent[i]
-
-    def union(self, i, j):
-        """
-        Connects i and j. Returns True if a cycle is formed, False otherwise.
-        """
-        root_i = self.find(i)
-        root_j = self.find(j)
-        if root_i != root_j:
-            self.parent[root_i] = root_j
-            return False  # No cycle created
-        return True  # A cycle was detected!
-
-    def copy(self):
-        """
-        Returns a new UnionFind instance with a copy of the current parent state.
-        This is crucial for non-destructive updates during recursion.
-        """
-        new_uf = UnionFind(len(self.parent))
-        new_uf.parent = self.parent[:]  # Create a shallow copy
-        return new_uf
-
 @njit
 def connects(required_connections, tile_connections):
     for i in range(4):

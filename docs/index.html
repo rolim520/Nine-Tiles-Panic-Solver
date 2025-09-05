@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nine Tiles Panic - Sandbox & Solver</title>
+    <title>Nine Tiles Panic</title>
+    <link rel="icon" href="assets/tile_images/0_0.png" type="image/png">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         :root {
@@ -85,22 +86,22 @@
         }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-200 font-sans antialiased">
+<body onload="brython()" class="bg-gray-900 text-gray-200 font-sans antialiased">
 
     <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50">
         <div class="text-center">
             <svg class="animate-spin h-10 w-10 text-blue-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-            <p id="loading-text" class="mt-4 text-lg">Carregando dados do jogo...</p>
+            <p id="loading-text" class="mt-4 text-lg">Loading game data...</p>
         </div>
     </div>
 
     <main class="container mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         <aside class="lg:col-span-3 bg-gray-800 p-4 rounded-lg shadow-lg order-1 flex flex-col">
-            <h2 class="text-xl font-bold mb-4 border-b border-gray-700 pb-2 flex-shrink-0">Objetivos do Jogo</h2>
+            <h2 class="text-xl font-bold mb-4 border-b border-gray-700 pb-2 flex-shrink-0">Game Objectives</h2>
             
             <div class="cards-container-desktop hidden lg:block flex-grow">
-                <p class="text-sm text-gray-400 mb-4">Selecione de 1 a 3 cartas.</p>
+                <p class="text-sm text-gray-400 mb-4">Select 1 to 3 cards.</p>
                 <div id="card-selection-grid-desktop" class="grid grid-cols-2 gap-2"></div>
             </div>
 
@@ -109,7 +110,7 @@
             </div>
         </aside>
 
-        <section class="lg:col-span-5 flex flex-col items-center order-2">
+        <section class="lg:col-span-6 flex flex-col items-center order-2">
             <div id="available-tiles-container" class="w-full mb-6">
                 <div class="available-tiles-scroller">
                     <div id="available-tiles-grid" class="available-tiles-grid"></div>
@@ -120,31 +121,35 @@
             
             <div class="mt-4 flex space-x-4">
                 <button id="optimal-solution-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
-                   Solução Ótima
+                   Optimal Solution
                </button>
                <button id="reset-board-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition">
-                   Limpar Tabuleiro
+                   Clear Board
                </button>
            </div>
 
             <p class="text-sm text-gray-500 mt-4 text-center">
-                <strong class="text-gray-400">PC:</strong> Selecione uma peça acima e clique em um espaço vazio para posicioná-la. Clique em uma peça no tabuleiro para trocá-la de lugar. Passe o mouse para girar, clique com o botão direito para virar, e dê um duplo clique para remover.
+                <strong class="text-gray-400">PC:</strong> Select a tile above and click on an empty space to place it. Click on a tile on the board to swap it. Hover to rotate, right-click to flip, and double-click to remove.
                 <br class="my-2">
-                <strong class="text-gray-400">Mobile:</strong> Toque em uma peça acima para selecionar, toque em um espaço vazio para posicionar. Toque em uma peça no tabuleiro para girar. Toque e segure para virar. Dê um toque duplo para remover.
+                <strong class="text-gray-400">Mobile:</strong> Tap a tile above to select, tap an empty space to place. Tap a tile on the board to rotate. Tap and hold to flip. Double-tap to remove.
             </p>
         </section>
 
-        <aside class="lg:col-span-4 bg-gray-800 p-4 rounded-lg shadow-lg order-3">
-            <h2 class="text-xl font-bold mb-4 border-b border-gray-700 pb-2">Estatísticas do Tabuleiro</h2>
+        <aside class="lg:col-span-3 bg-gray-800 p-4 rounded-lg shadow-lg order-3">
+            <h2 class="text-xl font-bold mb-4 border-b border-gray-700 pb-2">Board Statistics</h2>
             <div id="selected-cards-stats-title" class="mb-2 text-sm"></div>
             <div id="stats-panel" class="space-y-1 text-sm">
-                <p class="text-gray-500">Construa um tabuleiro para ver as estatísticas.</p>
+                <p class="text-gray-500">Build a board to see the statistics.</p>
             </div>
         </aside>
 
     </main>
     
     <div id="card-tooltip"></div>
+    <script type="text/javascript" src="brython/brython.js"></script>
+    <script type="text/javascript" src="brython/brython_stdlib.js"></script>
     <script src="js/script.js"></script>
+    <script type="text/python" src="python/main_web.py"></script>
+
 </body>
 </html>
