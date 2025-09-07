@@ -1,71 +1,34 @@
 # solver.py
 
-import numpy as np
-from numba import njit
-from constants import TILE_NODES, NUM_NODES
+from constants import TILE_NODES, WEST, NORTH, EAST, SOUTH
 
-@njit
-def connects(required_connections, tile_connections):
-    for i in range(4):
-        if required_connections[i] != -1 and required_connections[i] != tile_connections[i]:
-            return False
-    return True
-
-def generate_tile_connections(game_tiles):
-    # Cria um array NumPy 4D com formato (peça, lado, orientação, conexões)
-    # Ex: (9 peças, 2 lados, 4 orientações, 4 pontos de conexão)
-    tile_conns_array = np.zeros((9, 2, 4, 4), dtype=np.int8)
-
-    for piece in range(9):
-        for side in range(2):
-            # 1. Calcula as conexões base para a orientação 0
-            base_connections = np.zeros(4, dtype=np.int8)
-            # A verificação de segurança para "roads" é mantida
-            if side < len(game_tiles[piece]) and "roads" in game_tiles[piece][side]:
-                for road in game_tiles[piece][side]["roads"]:
-                    base_connections[road['connection'][0]] = 1
-                    base_connections[road['connection'][1]] = 1
-            
-            # 2. Usa np.roll para gerar eficientemente todas as orientações
-            for orientation in range(4):
-                # np.roll "gira" os elementos do array, simulando a rotação
-                tile_conns_array[piece, side, orientation] = np.roll(base_connections, shift=orientation)
-    return tile_conns_array
-
-@njit
-def find_candidate_tiles(tiling, position, available_pieces, tile_connections):
+def find_candidate_tiles(tiling, position, available_pieces, tile_connections, connections_candidates):
     row, col = position // 3, position % 3
     required_connections = [-1, -1, -1, -1]
 
-    # A lógica para determinar as conexões necessárias é a mesma
     if row > 0 and tiling[row-1, col, 0] != -1:
         piece, side, orient = tiling[row-1, col]
-        required_connections[1] = tile_connections[piece, side, orient, 3]
+        required_connections[NORTH] = tile_connections[piece, side, orient, SOUTH]
 
     if row < 2 and tiling[row+1, col, 0] != -1:
         piece, side, orient = tiling[row+1, col]
-        required_connections[3] = tile_connections[piece, side, orient, 1]
+        required_connections[SOUTH] = tile_connections[piece, side, orient, NORTH]
 
     if col > 0 and tiling[row, col-1, 0] != -1:
         piece, side, orient = tiling[row, col-1]
-        required_connections[0] = tile_connections[piece, side, orient, 2]
+        required_connections[WEST] = tile_connections[piece, side, orient, EAST]
 
     if col < 2 and tiling[row, col+1, 0] != -1:
         piece, side, orient = tiling[row, col+1]
-        required_connections[2] = tile_connections[piece, side, orient, 0]
-    
-    candidates = []
-    for piece in available_pieces:
-        for side in range(2):
-            for orientation in range(4):
-                # Acessa os dados usando a indexação do NumPy array
-                tile_conns = tile_connections[piece, side, orientation]
-                if connects(required_connections, tile_conns):
-                    candidates.append((piece, side, orientation))
-    return candidates
+        required_connections[EAST] = tile_connections[piece, side, orient, WEST]
+
+    potential_candidates = connections_candidates[tuple(required_connections)]
+    final_candidates = [candidate for candidate in potential_candidates if candidate[0] in available_pieces]
+
+    return final_candidates
 
 
-def find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_connections, uf_structure, candidate_domains):
+def find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_connections, connections_candidates, uf_structure, candidate_domains):
     if not candidate_domains:
         yield tiling.tolist()
         return
@@ -96,7 +59,6 @@ def find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_conn
         tiling[r, c] = candidate
         available_pieces.remove(piece)
 
-        # --- CORREÇÃO APLICADA AQUI: FORWARD CHECKING ---
         # 1. Cria uma cópia dos domínios restantes
         new_domains = candidate_domains.copy()
         del new_domains[best_next_cell]
@@ -106,9 +68,9 @@ def find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_conn
             # The erroneous 'if' condition has been removed.
             # We now correctly re-evaluate every remaining empty cell's domain.
             empty_pos = empty_r * 3 + empty_c
-            
-            updated_candidates = find_candidate_tiles(tiling, empty_pos, available_pieces, tile_connections)
-            
+
+            updated_candidates = find_candidate_tiles(tiling, empty_pos, available_pieces, tile_connections, connections_candidates)
+
             if not updated_candidates:
                 dead_end_found = True
                 break
@@ -121,10 +83,9 @@ def find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_conn
             available_pieces.add(piece)
             tiling[r, c] = -1
             continue
-        # --- FIM DA CORREÇÃO ---
 
         # Chama a recursão com o estado e domínios consistentes
-        yield from find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_connections, uf_copy, new_domains)
+        yield from find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_connections, connections_candidates, uf_copy, new_domains)
         
         # Desfaz a jogada (Backtrack)
         available_pieces.add(piece)

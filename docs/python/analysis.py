@@ -379,6 +379,11 @@ class UnionFind:
             self.parent[root_i] = root_j
             return False
         return True
+    
+    def copy(self):
+        new_uf = UnionFind(len(self.parent))
+        new_uf.parent = self.parent[:]
+        return new_uf
 
 def _get_tile_connections(tile_data, orientation):
     connections = [0, 0, 0, 0]  # Esquerda, Topo, Direita, Baixo

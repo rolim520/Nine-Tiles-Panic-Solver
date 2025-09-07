@@ -7,7 +7,7 @@ import glob
 import numpy as np
 import pandas as pd
 
-from solver import generate_tile_connections, find_valid_tilings_generator, find_candidate_tiles
+from solver import find_valid_tilings_generator, find_candidate_tiles
 from analysis import UnionFind
 from utils import SolutionWriter, get_next_filename
 from constants import NUM_NODES, TILE_NODES
@@ -16,29 +16,90 @@ from constants import NUM_NODES, TILE_NODES
 CHUNK_SIZE = 100_000
 TEMP_DIR = "temp_solutions" # A dedicated folder for temporary files
 
+def generate_tile_connections(game_tiles):
+    # Cria um array NumPy 4D com formato (peça, lado, orientação, conexões)
+    # Ex: (9 peças, 2 lados, 4 orientações, 4 pontos de conexão)
+    tile_conns_array = np.zeros((9, 2, 4, 4), dtype=np.int8)
+
+    for piece in range(9):
+        for side in range(2):
+            # 1. Calcula as conexões base para a orientação 0
+            base_connections = np.zeros(4, dtype=np.int8)
+            # A verificação de segurança para "roads" é mantida
+            if side < len(game_tiles[piece]) and "roads" in game_tiles[piece][side]:
+                for road in game_tiles[piece][side]["roads"]:
+                    base_connections[road['connection'][0]] = 1
+                    base_connections[road['connection'][1]] = 1
+            
+            # 2. Usa np.roll para gerar eficientemente todas as orientações
+            for orientation in range(4):
+                # np.roll "gira" os elementos do array, simulando a rotação
+                tile_conns_array[piece, side, orientation] = np.roll(base_connections, shift=orientation)
+    return tile_conns_array
+
+def generate_required_connections_candidates(tile_connections):
+    """
+    Cria um dicionário que mapeia uma tupla de conexões requeridas
+    para uma lista de peças/lados/orientações candidatas.
+    """
+
+    def connects(required_connections, tile_connections_to_check):
+        # Itera sobre os 4 lados (0: Oeste, 1: Norte, 2: Leste, 3: Sul)
+        for i in range(4):
+            # Se uma conexão é exigida (não é -1) e não bate com a da peça, não é válida.
+            if required_connections[i] != -1 and required_connections[i] != tile_connections_to_check[i]:
+                return False
+        return True
+
+    # Use um dicionário para o mapeamento. É a estrutura ideal para isso.
+    connections_candidates = {}
+
+    # Itera sobre todas as combinações de conexões possíveis (-1, 0, 1)
+    for i in range(-1, 2):  # Conexão Oeste
+        for j in range(-1, 2):  # Conexão Norte
+            for k in range(-1, 2):  # Conexão Leste
+                for l in range(-1, 2):  # Conexão Sul
+
+                    required_key = (i, j, k, l)
+                    candidates_for_key = []
+
+                    # Agora, encontre todas as peças que satisfazem essa exigência
+                    for piece in range(9):
+                        for side in range(2):
+                            for orientation in range(4):
+                                # Pega as conexões da peça atual
+                                current_tile_conns = tile_connections[piece, side, orientation]
+                                
+                                # Se a peça for compatível, adicione à lista de candidatos
+                                if connects(required_key, current_tile_conns):
+                                    candidates_for_key.append((piece, side, orientation))
+
+                    # Armazena a lista de candidatos no dicionário
+                    connections_candidates[required_key] = candidates_for_key
+
+    return connections_candidates
+
 def solve_for_task(task_config):
-    # ... (argumentos da task_config) ...
+
     worker_id = task_config['id']
     tiling = task_config['tiling']
     available_pieces = task_config['available_pieces']
     uf_structure = task_config['uf_structure']
     game_tiles = task_config['game_tiles']
     tile_connections = task_config['tile_connections']
+    connections_candidates = task_config['connections_candidates']
 
     temp_file_path = os.path.join(TEMP_DIR, f"solutions_{worker_id}.parquet")
     
     initial_domains = {}
     for r in range(3):
         for c in range(3):
-            # --- ALTERAÇÃO AQUI: Verificação ajustada para NumPy ---
             if tiling[r, c, 0] == -1: # Verifica se a célula está vazia
                 pos = r * 3 + c
-                initial_domains[(r, c)] = find_candidate_tiles(tiling, pos, available_pieces, tile_connections)
+                initial_domains[(r, c)] = find_candidate_tiles(tiling, pos, available_pieces, tile_connections, connections_candidates)
 
     with SolutionWriter(temp_file_path, CHUNK_SIZE, silent=True, worker_id=worker_id) as writer:
-        solution_generator = find_valid_tilings_generator(
-            tiling, available_pieces, game_tiles, tile_connections, uf_structure, initial_domains
-        )
+        solution_generator = find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_connections, connections_candidates, uf_structure, initial_domains)
         writer.process_solutions(solution_generator, game_tiles)
     
     return writer.total_solutions_found
@@ -97,6 +158,7 @@ def main():
     with open('game/tiles/tiles.json', 'r', encoding='utf-8') as file:
         game_tiles = json.load(file)
     tile_connections = generate_tile_connections(game_tiles)
+    connections_candidates = generate_required_connections_candidates(tile_connections)
 
     # Configurations for placing the first piece (Piece 8 generates the least branches)
     search_configs = [
@@ -150,7 +212,8 @@ def main():
                 'available_pieces': available_pieces,
                 'uf_structure': uf,
                 'game_tiles': game_tiles,
-                'tile_connections': tile_connections
+                'tile_connections': tile_connections,
+                'connections_candidates': connections_candidates,
             })
             task_id_counter += 1
 

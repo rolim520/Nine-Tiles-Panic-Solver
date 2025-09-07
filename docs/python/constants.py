@@ -20,6 +20,9 @@ TILE_NODES = [
     [19, 16, 20, 23] # Position 8
 ]
 
+# Direction constants
+WEST, NORTH, EAST, SOUTH = 0, 1, 2, 3
+
 # Other potential constants
 GRID_SIZE = 3
 NUM_NODES = 24
