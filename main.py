@@ -98,43 +98,44 @@ def main():
         game_tiles = json.load(file)
     tile_connections = generate_tile_connections(game_tiles)
 
-    # Configurations for placing the VERY FIRST piece (Piece 0)
+    # Configurations for placing the first piece (Piece 8 generates the least branches)
     search_configs = [
         {
-            "name": "Piece 0 at top-left corner",
+            "name": "Piece 8 at top-left corner",
             "start_pos": (0, 0),
             "candidates": [(8, side, orient) for side in range(2) for orient in range(4)]
         },
         {
-            "name": "Piece 0 at top-center edge",
+            "name": "Piece 8 at top-center edge",
             "start_pos": (0, 1),
             "candidates": [(8, side, orient) for side in range(2) for orient in range(4)]
         },
         {
-            "name": "Piece 0 at board center",
+            "name": "Piece 8 at board center",
             "start_pos": (1, 1),
             "candidates": [(8, 0, 0), (8, 1, 0)]
         }
     ]
 
-    # --- 2. PREPARE TASKS (REVERTIDO PARA BAIXA GRANULARIDADE) ---
+    # --- 2. PREPARE TASKS ---
     print("Preparing tasks (1 initial piece)...")
     tasks = []
     task_id_counter = 0
 
-    # Gera tarefas com apenas 1 peça inicial para minimizar o overhead
+    # Generate tasks with a single initial piece placed
     for config in search_configs:
         for candidate in config['candidates']:
-            # Inicializa o tiling como um array NumPy
+            # Initialize the tiling as a NumPy array
+            (piece, side, orientation) = candidate
             tiling = np.full((3, 3, 3), -1, dtype=np.int8)
             tiling[config['start_pos'][0], config['start_pos'][1]] = candidate
             
-            # As peças de 1 a 8 estão disponíveis
-            available_pieces = set(range(1, 9))
+            # CORREÇÃO: Inicializa com todas as 9 peças (0-8) e remove a que foi colocada.
+            available_pieces = set(range(9))
+            available_pieces.remove(piece)
             
             # Cria a estrutura UnionFind para a tarefa
             uf = UnionFind(NUM_NODES)
-            (piece, side, orientation) = candidate
             piece_pos = config['start_pos'][0] * 3 + config['start_pos'][1]
             for road in game_tiles[piece][side]["roads"]:
                 l_conn1, l_conn2 = road['connection']

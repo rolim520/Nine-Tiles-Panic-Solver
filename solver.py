@@ -15,17 +15,21 @@ def generate_tile_connections(game_tiles):
     # Cria um array NumPy 4D com formato (peça, lado, orientação, conexões)
     # Ex: (9 peças, 2 lados, 4 orientações, 4 pontos de conexão)
     tile_conns_array = np.zeros((9, 2, 4, 4), dtype=np.int8)
-    
+
     for piece in range(9):
         for side in range(2):
+            # 1. Calcula as conexões base para a orientação 0
+            base_connections = np.zeros(4, dtype=np.int8)
+            # A verificação de segurança para "roads" é mantida
+            if side < len(game_tiles[piece]) and "roads" in game_tiles[piece][side]:
+                for road in game_tiles[piece][side]["roads"]:
+                    base_connections[road['connection'][0]] = 1
+                    base_connections[road['connection'][1]] = 1
+            
+            # 2. Usa np.roll para gerar eficientemente todas as orientações
             for orientation in range(4):
-                connections = [0, 0, 0, 0]
-                # Verifica se a peça/lado existe no JSON antes de acessar
-                if side < len(game_tiles[piece]) and "roads" in game_tiles[piece][side]:
-                    for road in game_tiles[piece][side]["roads"]:
-                        connections[(road['connection'][0] + orientation) % 4] = 1
-                        connections[(road['connection'][1] + orientation) % 4] = 1
-                tile_conns_array[piece, side, orientation] = connections
+                # np.roll "gira" os elementos do array, simulando a rotação
+                tile_conns_array[piece, side, orientation] = np.roll(base_connections, shift=orientation)
     return tile_conns_array
 
 @njit
