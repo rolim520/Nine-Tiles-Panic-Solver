@@ -76,18 +76,24 @@ class SolutionWriter:
         # Define the types for all columns
         schema = {}
         # 1. Grid layout columns (piece, side, orient)
-        for i in range(9):
-            schema[f'piece_{i:02d}'] = 'uint8'
-            schema[f'side_{i:02d}'] = 'uint8'
-            schema[f'orient_{i:02d}'] = 'uint8'
+        for r in range(3):
+            for c in range(3):
+                schema[f'piece_{r}{c}'] = 'uint8'
+                schema[f'side_{r}{c}'] = 'uint8'
+                schema[f'orient_{r}{c}'] = 'uint8'
 
         # 2. Statistical columns (totals, etc.)
         stat_keys = [
+            # Original keys
             "total_houses", "total_ufos", "total_girls", "total_boys", "total_dogs",
             "total_hamburgers", "total_aliens", "total_agents", "total_captured_aliens",
-            "total_curves", "total_tiles_without_roads", "longest_road", "num_closed_roads",
+            "total_curves", "total_tiles_without_roads",
             "largest_dog_group", "largest_house_group", "largest_citizen_group",
-            "largest_safe_zone_size"
+            "largest_safe_zone_size", "total_roads", "max_aliens_running_towards_agent",
+            "max_hamburgers_in_front_of_alien", "max_agents_on_one_road",
+            "max_aliens_on_one_road", "max_aliens_between_two_agents",
+            "total_food_chain_sets", "longest_road_size", "max_roads_of_same_length",
+            "aliens_times_ufos", "aliens_times_hamburgers", "citizen_dog_pairs"
         ]
         for key in stat_keys:
              # Use a 8-bit integer (0-255), which is more than enough for counts.
