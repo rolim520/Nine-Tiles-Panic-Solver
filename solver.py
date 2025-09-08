@@ -30,7 +30,7 @@ def find_candidate_tiles(tiling, position, available_pieces, tile_connections, c
 
 def find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_connections, connections_candidates, uf_structure, candidate_domains):
     if not candidate_domains:
-        yield tiling.tolist()
+        yield tiling.tolist(), uf_structure
         return
 
     best_next_cell = min(candidate_domains, key=lambda cell: len(candidate_domains[cell]))
@@ -85,8 +85,9 @@ def find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_conn
             continue
 
         # Chama a recursão com o estado e domínios consistentes
-        yield from find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_connections, connections_candidates, uf_copy, new_domains)
-        
+        for solution, final_uf in find_valid_tilings_generator(tiling, available_pieces, game_tiles, tile_connections, connections_candidates, uf_copy, new_domains):
+            yield solution, final_uf
+
         # Desfaz a jogada (Backtrack)
         available_pieces.add(piece)
         tiling[r, c] = -1

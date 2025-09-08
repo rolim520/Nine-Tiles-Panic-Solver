@@ -134,12 +134,12 @@ class SolutionWriter:
         """
         Consumes solutions, calculates stats, and writes the combined data to the file.
         """
-        for solution in solution_generator:
-            # 1. Convert the grid solution to the flat dictionary (e.g., piece_00, side_00...)
+        # Unpack the solution and the uf object
+        for solution, uf_structure in solution_generator:
             flat_solution = solution_to_flat_dict(solution)
-            
-            # 2. NEW: Calculate the statistics for this solution using the new function.
-            solution_stats = calculate_solution_stats(solution, game_tiles)
+
+            # Pass the uf_structure to the stats calculation!
+            solution_stats = calculate_solution_stats(solution, game_tiles, uf_structure)
             
             # 3. Merge the two dictionaries into a single record.
             #    This combines the grid layout with the calculated totals.

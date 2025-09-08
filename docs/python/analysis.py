@@ -1,6 +1,6 @@
 # analysis.py
 
-from collections import Counter, deque
+from collections import defaultdict, Counter, deque
 from constants import TILE_NODES
 
 STAT_KEYS = [
@@ -131,35 +131,36 @@ def _calculate_max_hamburgers_in_front_of_alien(road, aliens, captured_indices):
 def _calculate_max_aliens_between_agents(road, agents):
     """
     Finds the maximum number of aliens between any two agents
-    that are explicitly facing each other.
+    that are explicitly facing each other. Optimized with a single sort.
     """
-    max_aliens = 0
+    if len(agents) < 2:
+        return 0
 
-    # 1. We must check every possible combination of two agents.
-    for agent1 in agents:
-        for agent2 in agents:
-            # Ensure agent1 is to the left of agent2
-            if agent1['pos'] >= agent2['pos']:
-                continue
+    # Sort the list of agents by position ONCE.
+    sorted_agents = sorted(agents, key=lambda a: a['pos'])
 
-            # 2. Check if they form a "facing each other" pair: -> ... <-
-            is_facing_pair = (agent1['dir'] == 1 and agent2['dir'] == 0)
+    # Find the leftmost agent looking right (dir=1) by iterating forward.
+    leftmost_agent_right = None
+    for agent in sorted_agents:
+        if agent['dir'] == 1:
+            leftmost_agent_right = agent
+            break
 
-            if is_facing_pair:
-                # 3. If they are a valid pair, count the aliens between them.
-                start_pos = agent1['pos']
-                end_pos = agent2['pos']
-                
-                # Slice the road and count the aliens
-                aliens_in_between = [
-                    item for item, _ in road[start_pos + 1 : end_pos] if item == "alien"
-                ]
-                current_aliens = len(aliens_in_between)
-                
-                # 4. Update the overall maximum.
-                max_aliens = max(max_aliens, current_aliens)
-    
-    return max_aliens
+    # Find the rightmost agent looking left (dir=0) by iterating backward.
+    rightmost_agent_left = None
+    for agent in reversed(sorted_agents):
+        if agent['dir'] == 0:
+            rightmost_agent_left = agent
+            break
+            
+    # If a valid outermost pair exists, calculate the aliens between them.
+    if leftmost_agent_right and rightmost_agent_left and leftmost_agent_right['pos'] < rightmost_agent_left['pos']:
+        start_pos = leftmost_agent_right['pos']
+        end_pos = rightmost_agent_left['pos']
+        
+        return sum(1 for item, _ in road[start_pos + 1 : end_pos] if item == "alien")
+
+    return 0
 
 
 # =============================================================================
@@ -186,6 +187,7 @@ def _process_road_for_stats(road):
         'max_aliens_between_two_agents': _calculate_max_aliens_between_agents(road, all_items['agent']),
         'food_chain_sets': _find_sets_in_sequence(road, ['agent', 'alien', 'hamburger']),
     }
+
 
 def _build_all_roads(solution, game_tiles):
     adj, edge_map = {i: [] for i in range(24)}, {}
@@ -239,8 +241,105 @@ def _build_all_roads(solution, game_tiles):
             all_roads.append(road_items)
     return all_roads
 
-def analyze_road_network(solution, game_tiles):
-    all_roads = _build_all_roads(solution, game_tiles)
+
+def _build_all_roads_from_uf(solution, game_tiles, uf_structure):
+    """
+    Builds all roads with maximum efficiency by using the UnionFind structure
+    and eliminating the intermediate adjacency list.
+    """
+    # PART 1: Collect ONLY the edge-to-item mapping. No adjacency list needed.
+    edge_map = {}
+    for r in range(3):
+        for c in range(3):
+            (piece, side, orientation) = solution[r][c]
+            position = r * 3 + c
+            for road_info in game_tiles[piece][side].get("roads", []):
+                c1, c2 = road_info['connection']
+                g1 = TILE_NODES[position][(c1 + orientation) % 4]
+                g2 = TILE_NODES[position][(c2 + orientation) % 4]
+                d = road_info.get('direction', -1)
+                target_node = -1
+                if d != -1:
+                    target_node = TILE_NODES[position][(d + orientation) % 4]
+                edge = tuple(sorted((g1, g2)))
+                edge_map[edge] = {'item': road_info.get('item', ''), 'target_node': target_node}
+
+    # PART 2: Find road components using Union-Find (already optimal).
+    components = defaultdict(list)
+    for i in range(24):
+        root = uf_structure.find(i)
+        components[root].append(i)
+    road_components = [nodes for nodes in components.values() if len(nodes) > 1]
+    
+    all_roads = []
+    
+    # PART 3: Trace paths efficiently using only the edge_map.
+    for component_nodes in road_components:
+        component_nodes_set = set(component_nodes)
+        
+        # Find all edges that belong to the current component
+        edges_in_component = [edge for edge in edge_map if edge[0] in component_nodes_set]
+
+        # Count node appearances to find endpoints (nodes that appear in only one edge)
+        node_counts = Counter(node for edge in edges_in_component for node in edge)
+        endpoints = [node for node, count in node_counts.items() if count == 1]
+        
+        start_node = endpoints[0] if endpoints else component_nodes[0]
+        
+        # Trace the path by "walking" along the edges
+        path = [start_node]
+        used_edges = set()
+        while len(path) < len(component_nodes):
+            curr = path[-1]
+            found_next = False
+            for u, v in edges_in_component:
+                edge = (u, v)
+                if edge in used_edges:
+                    continue
+                
+                # Find the other node on an edge connected to the current node
+                if u == curr:
+                    path.append(v)
+                    used_edges.add(edge)
+                    found_next = True
+                    break
+                elif v == curr:
+                    path.append(u)
+                    used_edges.add(edge)
+                    found_next = True
+                    break
+            if not found_next:
+                break
+
+        # Convert the ordered path of nodes into a list of items with directions
+        road_items = []
+        for i in range(len(path) - 1):
+            u, v = path[i], path[i+1]
+            edge = tuple(sorted((u, v)))
+            if edge in edge_map:
+                data = edge_map[edge]
+                direction = -1
+                if data['target_node'] != -1:
+                    direction = 1 if data['target_node'] == v else 0
+                road_items.append((data['item'], direction))
+        all_roads.append(road_items)
+        
+    return all_roads
+
+def analyze_road_network(solution, game_tiles, uf_structure=None):
+    """
+    Analyzes the road network of a solution.
+    
+    If a pre-calculated uf_structure is provided, it uses the highly optimized
+    road-building function. Otherwise, it falls back to the original BFS-based method.
+    """
+    # Choose the road-building function based on whether uf_structure was provided.
+    if uf_structure:
+        # Use the fast, optimized version
+        all_roads = _build_all_roads_from_uf(solution, game_tiles, uf_structure)
+    else:
+        # Fall back to the original, slower version
+        all_roads = _build_all_roads(solution, game_tiles)
     
     agg_stats = {
         "total_roads": len(all_roads), "aliens_caught": 0, "max_aliens_running_towards_agent": 0,
@@ -317,7 +416,7 @@ def calculate_adjacency_stats(solution, game_tiles):
 # SECTION 4: FUNÇÃO PRINCIPAL AGREGADORA
 # =============================================================================
 
-def calculate_solution_stats(solution, game_tiles):
+def calculate_solution_stats(solution, game_tiles, uf_structure=None):
     stats = {f"total_{key}": 0 for key in STAT_KEYS}
     stats["total_tiles_without_roads"] = 0
     for r in range(3):
@@ -328,7 +427,7 @@ def calculate_solution_stats(solution, game_tiles):
                 if key in tile_data: stats[f"total_{key}"] += tile_data[key]
             if not tile_data.get("roads"): stats["total_tiles_without_roads"] += 1
     
-    road_stats = analyze_road_network(solution, game_tiles)
+    road_stats = analyze_road_network(solution, game_tiles, uf_structure)
     stats["total_captured_aliens"] += road_stats.pop("aliens_caught", 0)
     stats.update(road_stats)
 

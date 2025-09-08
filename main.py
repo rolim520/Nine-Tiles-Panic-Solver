@@ -160,22 +160,22 @@ def main():
     tile_connections = generate_tile_connections(game_tiles)
     connections_candidates = generate_required_connections_candidates(tile_connections)
 
-    # Configurations for placing the first piece (Piece 8 generates the least branches)
+    # Configurations for placing the first piece (Piece 6 generates the least branches)
     search_configs = [
         {
-            "name": "Piece 8 at top-left corner",
+            "name": "Piece 6 at top-left corner",
             "start_pos": (0, 0),
-            "candidates": [(8, side, orient) for side in range(2) for orient in range(4)]
+            "candidates": [(6, side, orient) for side in range(2) for orient in range(4)]
         },
         {
-            "name": "Piece 8 at top-center edge",
+            "name": "Piece 6 at top-center edge",
             "start_pos": (0, 1),
-            "candidates": [(8, side, orient) for side in range(2) for orient in range(4)]
+            "candidates": [(6, side, orient) for side in range(2) for orient in range(4)]
         },
         {
-            "name": "Piece 8 at board center",
+            "name": "Piece 6 at board center",
             "start_pos": (1, 1),
-            "candidates": [(8, 0, 0), (8, 1, 0)]
+            "candidates": [(6, 0, 0), (6, 1, 0)]
         }
     ]
 
