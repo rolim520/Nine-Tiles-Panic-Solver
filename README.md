@@ -1,8 +1,12 @@
-# Nine Tiles Panic Solver
+# 🧩 Nine Tiles Panic Solver
 
 This repository contains a comprehensive solver and analysis suite for the board game **Nine Tiles Panic**. The primary goal is to exhaustively generate every possible valid board configuration. After a massive search, a total of **2,922,907,648** unique solutions were found (ignoring the 4 board rotations that are physically identical). The project then performs a deep analysis on these solutions to find the single "best" configuration for any given combination of scoring cards.
 
-👉 You can try the interactive solution visualizer deployed on **GitHub Pages** here: [Nine Tiles Panic Solver Interface](https://rolim520.github.io/Nine-Tiles-Panic-Solver/)
+The full 4.27 GB dataset of all solutions is publicly available on the Hugging Face Hub:
+👉 **Dataset**: [rolim520/Nine-Tiles-Panic-Solutions](https://huggingface.co/datasets/rolim520/Nine-Tiles-Panic-Solutions)
+
+You can try the interactive solution visualizer deployed on **GitHub Pages** here:
+👉 **Web App**: [Nine Tiles Panic Solver Interface](https://rolim520.github.io/Nine-Tiles-Panic-Solver/)
 
 ## Project at a Glance
 
@@ -17,16 +21,25 @@ This repository contains a comprehensive solver and analysis suite for the board
 
 1.  [The Game: Nine Tiles Panic](#the-game-nine-tiles-panic)
 2.  [The Goal: Finding the "Best" Town](#the-goal-finding-the-best-town)
-3.  [The Combinatorial Challenge](#the-combinatorial-challenge)
-4.  [How the Solver Works](#how-the-solver-works)
+    * [The Scoring Cards](#the-scoring-cards)
+3.  [Key Findings & Game Limits](#key-findings--game-limits)
+4.  [The Combinatorial Challenge](#the-combinatorial-challenge)
+5.  [How the Solver Works](#how-the-solver-works)
     * [Phase 1: Generating All Valid Solutions](#phase-1-generating-all-valid-solutions)
     * [Phase 2: Post-Processing and Analysis](#phase-2-post-processing-and-analysis)
-5.  [Game Modeling and Scoring System](#game-modeling-and-scoring-system)
+6.  [Key Technical Decisions & Optimizations](#key-technical-decisions--optimizations)
+7.  [Game Modeling and Scoring System](#game-modeling-and-scoring-system)
     * [Board and Tile Representation](#board-and-tile-representation)
     * [Individual Card Score (Rank-Based Score)](#individual-card-score-rank-based-score)
     * [Combined Score (Geometric Mean)](#combined-score-geometric-mean)
-6.  [How to Run the Code](#how-to-run-the-code)
-7.  [Results and Directory Structure](#results-and-directory-structure)
+8.  [How to Run the Code](#how-to-run-the-code)
+    * [Step 1: Install Dependencies](#step-1-install-dependencies)
+    * [Step 2: Download the Solutions Dataset (Optional)](#step-2-download-the-solutions-dataset-optional)
+    * [Step 3: Analyze and Find Best Solutions](#step-3-analyze-and-find-best-solutions)
+    * [Step 4: Generate Solutions from Scratch (Computationally Intensive)](#step-4-generate-solutions-from-scratch-computationally-intensive)
+    * [Step 5: Run the Interactive Interface](#step-5-run-the-interactive-interface)
+9.  [Future Work & Potential Improvements](#future-work--potential-improvements)
+10. [Data & Directory Structure](#data--directory-structure)
 
 -----
 
@@ -220,69 +233,55 @@ To ensure numerical stability when multiplying many scores, the calculation is p
 
 ## How to Run the Code
 
-**Prerequisites:** Python 3.8+
+**Prerequisites:** Python 3.8+ and the packages in `requirements.txt`.
 
 ### Step 1: Install Dependencies
 
-It is recommended to use a virtual environment to manage dependencies.
+It is recommended to use a virtual environment.
 
 ```bash
-# Create and activate a virtual environment
-python3 -m venv venv
-source venv/bin/activate
-```
-
-Install the required packages using pip:
-
-```bash
-# Install all dependencies
+# Install all dependencies from the requirements file
 pip install -r requirements.txt
 ```
 
-### Step 2: Generate Solutions
+### Step 2: Download the Solutions Dataset (Optional)
 
-Execute the main solver script.
+To run the analysis (`post_process.py`) without first generating the solutions yourself, you can download the complete dataset from Hugging Face.
 
-```bash
-python3 main.py
-```
-
-**Important**: This is a computationally intensive process. On a modern multi-core CPU, it can take **hours or days** to complete. It will generate a very large Parquet file (approx. 5 GB) in the `generated_solutions/` directory.
+1.  Create a directory for the data: `mkdir generated_solutions`
+2.  Download the `tiling_solutions.parquet` file from [**Hugging Face**](https://huggingface.co/datasets/rolim520/Nine-Tiles-Panic-Solutions) and place it inside the `generated_solutions/` directory.
 
 ### Step 3: Analyze and Find Best Solutions
 
-Once the generation is complete, run the post-processing script.
+Once the dataset is in place, run the post-processing script. This script will analyze the data and produce the final JSON files used by the web interface.
 
 ```bash
 python3 post_process.py
 ```
 
-This script will read the large Parquet file, perform the entire DuckDB analysis, and generate the final databases and solution images. This step can also take several hours to complete.
+### Step 4: Generate Solutions from Scratch (Computationally Intensive)
 
-### Step 4: Run the Interactive Interface (Optional)
+If you wish to generate the solutions yourself instead of downloading them:
 
-To run the interactive interface on your local machine, follow these steps:
+```bash
+python3 main.py
+```
 
-1.  **Navigate to the `docs` directory**:
-    ```bash
-    cd docs
-    ```
+**Important**: This can take **hours or days** to complete. It will generate the `tiling_solutions.parquet` file (\~4.27 GB) in the `generated_solutions/` directory.
 
-2.  **Start a local web server**:
-    ```bash
-    python3 -m http.server
-    ```
+### Step 5: Run the Interactive Interface
 
-3.  **Open your browser** and go to `http://localhost:8000`.
+1.  **Navigate to the `docs` directory**: `cd docs`
+2.  **Start a local web server**: `python3 -m http.server`
+3.  **Open your browser** to `http://localhost:8000`.
 
-## Results and Directory Structure
+## Data & Directory Structure
 
-  * `/docs`: Contains the static web interface.
-      * `/docs/data/best_solutions.json`: The key output file containing the optimal layout for all 2,625 card combinations.
-      * `/docs/data/percentiles.json`: The percentile scores for every statistic.
-  * `/generated_solutions`: The directory where the large `.parquet` files from the solver are stored.
-  * `/game`: Contains the JSON definitions for game tiles and cards.
-  * `main.py`: The main script to start the parallel solution generation.
-  * `solver.py`: Implements the core backtracking search algorithm.
-  * `post_process.py`: The script for analyzing the generated solutions with DuckDB.
-  * `analysis.py`: Contains all functions for calculating statistics for a given board layout.
+  * **/docs**: Contains the static web interface and final JSON data.
+      * **/docs/data/best\_solutions.json**: The key output file with the optimal layout for all 2,625 card combinations.
+  * **/generated\_solutions**: A local directory where the large `.parquet` file containing all solutions is stored. **Note**: This data is not in the repository due to its size. It can be downloaded from [Hugging Face](https://huggingface.co/datasets/rolim520/Nine-Tiles-Panic-Solutions) or generated locally.
+  * **/game**: Contains the JSON definitions for game tiles and cards.
+  * **main.py**: The entry point script to start the parallel solution generation.
+  * **solver.py**: Implements the core backtracking search algorithm.
+  * **post\_process.py**: The script for analyzing generated solutions with DuckDB.
+  * **analysis.py**: Contains all functions for calculating statistics for a board layout.
