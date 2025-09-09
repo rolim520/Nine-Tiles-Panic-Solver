@@ -1,13 +1,19 @@
 # Nine Tiles Panic Solver
 
-This repository contains a comprehensive solver and analysis suite for the board game **Nine Tiles Panic**. The primary goal is to exhaustively generate every possible valid board configuration (~2.9 billion of them) and then perform a deep analysis to find the single "best" solution for any given combination of scoring cards.
+This repository contains a comprehensive solver and analysis suite for the board game **Nine Tiles Panic**. The primary goal is to exhaustively generate every possible valid board configuration. After a massive search, a total of **2,922,907,648** unique solutions were found (ignoring the 4 board rotations that are physically identical). The project then performs a deep analysis on these solutions to find the single "best" configuration for any given combination of scoring cards.
 
 👉 You can try the interactive solution visualizer deployed on **GitHub Pages** here: [Nine Tiles Panic Solver Interface](https://rolim520.github.io/Nine-Tiles-Panic-Solver/)
+
+## Project at a Glance
+
+* **Objective**: To exhaustively find the single optimal 3x3 board layout for any combination of scoring objectives in the board game *Nine Tiles Panic*.
+* **Method**: A two-phase process involving a **parallelized backtracking solver** to generate all valid layouts, followed by a **large-scale data analysis** script using DuckDB to pre-calculate the best configuration for every scenario.
+* **Key Technologies**: Python (`multiprocessing`), DuckDB, and PyArrow (Parquet) for the backend solver; Brython and JavaScript for the interactive web UI.
+* **Result**: A total of **2,922,907,648** unique valid solutions were discovered. The optimal layout was found for all **2,625 scorable card combinations**.
 
 ![](./images/interface.png)
 
 ## Table of Contents
-
 
 1.  [The Game: Nine Tiles Panic](#the-game-nine-tiles-panic)
 2.  [The Goal: Finding the "Best" Town](#the-goal-finding-the-best-town)
@@ -38,7 +44,58 @@ This solver was built to answer that question by:
 
 1.  Finding every single valid arrangement of the nine tiles.
 2.  Calculating dozens of statistics for each valid arrangement (e.g., number of houses, length of roads, etc.).
-3.  Determining the optimal arrangement for every individual scoring card, every possible pair of cards, and every possible trio of cards.
+3.  Determining the optimal arrangement for every possible combination of scoring cards.
+
+### The Scoring Cards
+
+The game includes 26 "Theme Cards," each defining a unique scoring objective. However, one card, *"Finish Quickly!"* (#4), rewards the fastest player and is not based on the final board layout. Therefore, it is excluded from this analysis.
+
+This leaves **25 scorable objective cards**. The solver calculates the best layout for every possible game scenario:
+
+* **25 combinations** for a single objective card.
+* **300 combinations** for any pair of objective cards ($_{25}C_2$).
+* **2,300 combinations** for any trio of objective cards ($_{25}C_3$).
+
+In total, the project finds the single best solution for **2,625 unique scoring scenarios**.
+
+-----
+
+## Key Findings & Game Limits
+
+The analysis of all ~2.9 billion solutions established the definitive range of possible values for every scorable statistic in the game. 
+
+#### 🏙️ Town & Items
+* **Total Agents**: 0 to 5
+* **Total Captured Aliens**: 0 to 4
+* **Total Boys**: 0 to 4
+* **Total Girls**: 0 to 3
+* **Total Dogs**: 1 to 6
+* **Total Houses**: 1 to 6
+* **Citizen + Dog Pairs**: 0 to 5
+* **Aliens x Hamburgers**: 0 to 20
+* **Aliens x UFOs**: 0 to 8
+
+#### 🚗 Road Network
+* **Total Roads**: 1 to 6
+* **Longest Road Size**: 2 to 11 segments
+* **Total Curves**: 1 to 11
+* **Max Roads of Same Length**: 1 to 5
+* **Tiles Without Roads**: 0 to 3
+
+#### 🧑‍🤝‍🧑 Adjacency & Grouping
+* **Largest Dog Group**: 1 to 5 tiles
+* **Largest House Group**: 1 to 5 tiles
+* **Largest Citizen Group**: 0 to 6 tiles
+* **Largest Safe Zone (No Aliens)**: 1 to 9 tiles
+
+#### 👽 Alien & Agent Interactions
+* **Max Aliens Between Two Agents**: 0 to 4
+* **Max Agents on One Road**: 0 to 4
+* **Max Aliens on One Road**: 0 to 4
+* **Max Aliens Running Towards an Agent**: 0 to 4
+* **Max Hamburgers in Front of an Alien**: 0 to 7
+* **Total Food Chain Sets**: 0 to 3
+-----
 
 ## The Combinatorial Challenge
 
@@ -52,7 +109,7 @@ The total number of theoretical arrangements is:
 
 $9! \times 2^9 \times 4^9 = 362,880 \times 512 \times 262,144 = 48,704,929,136,640$
 
-This number is astronomically large. However, the vast majority of these are invalid because of the strict road connection rule. The solver's first job is to navigate this space to find only the valid layouts. This number is also accounting for the 4 city arrangement orientations, that physically represents the same board.
+This number is astronomically large. However, the vast majority of these are invalid because of the strict road connection rule. The solver's first job is to navigate this space to find only the valid layouts. This number is also accounting for the 4 city arrangement orientations, that in practice represents the same board.
 
 -----
 
@@ -77,13 +134,12 @@ Once all solutions are generated into a 5 GB Parquet file, `post_process.py` tak
 The analysis follows these steps:
 
 1.  **Create a Database View**: A DuckDB view is created that points directly to the Parquet file. This is an instantaneous, zero-copy operation.
-2.  **Calculate Percentiles**: To create a fair scoring system, the script first identifies all unique possible values for each statistic (e.g., the possible values for 'total houses' might be 0, 1, 2, 3, 4, 5). It then assigns a score to each of these values based on its rank, creating a uniform scale. For example, if there are 6 possible outcomes for houses, they are mapped to scores of 0, 20, 40, 60, 80, and 100. This is done with a single, efficient `UNPIVOT` and `PERCENT_RANK` query.
-3.  **Pre-compute All Scores**: A new table, `solution_scores`, is created. In this table, every solution is scored from 0 to 100 for each of the 26 scoring cards based on the pre-calculated percentiles.
+2.  **Calculate Percentiles**: To create a fair scoring system, the script first calculates the percentile rank for every possible value of each statistic. This normalizes all objectives onto a consistent 0-100 scale.
+3.  **Pre-compute All Scores**: A new table, `solution_scores`, is created. In this table, every solution is scored from 0 to 100 for each of the 25 scorable cards based on the calculated percentiles.
 4.  **Find the Best**: The script then queries the `solution_scores` table to find the optimal solution for every combination:
-      * The single best solution for each of the 26 cards.
-      * The best solution for all 325 unique pairs of cards.
-      * The best solution for all 2,600 unique trios of cards.
-      * The single best "overall" solution.
+    * The single best solution for each of the **25 scorable cards**.
+    * The best solution for all **300 unique pairs** of cards.
+    * The best solution for all **2,300 unique trios** of cards.
 
 -----
 
@@ -142,11 +198,11 @@ The analysis follows these steps:
 
 ### Individual Card Score (Rank-Based Score)
 
-A solution's score for a single card is based on the **rank of its statistic's value** among all possible unique values for that statistic. This method normalizes all objectives onto a consistent 0-100 scale, where the score represents how good a value is relative to its other possible outcomes, regardless of how frequently each outcome occurs.
+A solution's score for a single card is based on the **percentile rank of its statistic's value**. This method normalizes all objectives onto a consistent 0-100 scale, where the score represents how good a value is relative to all ~2.9 billion solutions.
 
-  * **`max` type cards** (e.g., "Most houses"): The score is the direct rank-based percentile. A value with the highest rank gets a score of 100.
+* **`max` type cards** (e.g., "Most houses"): The score is the direct rank-based percentile. A value in the 99th percentile gets a score of 99.
     $Score = RankPercentile$
-  * **`min` type cards** (e.g., "Fewest roads"): The score is the inverse of the rank-based percentile. A value with the lowest rank gets a score of 100.
+* **`min` type cards** (e.g., "Fewest roads"): The score is the inverse of the rank-based percentile. A value in the 1st percentile (very low) gets a score of 99.
     $Score = 100 - RankPercentile$
 
 ### Combined Score (Geometric Mean)
@@ -155,8 +211,8 @@ When evaluating a combination of 2 or 3 cards, a simple average is insufficient.
 
 The geometric mean strongly rewards solutions that perform well across *all* objectives and heavily penalizes any solution that scores poorly on even one objective. If any card scores a 0, the entire combined score becomes 0.
 
-  * **For a pair of cards**: $Score_{pair} = \sqrt{Score_{card1} \times Score_{card2}}$
-  * **For a trio of cards**: $Score_{trio} = \sqrt[3]{Score_{card1} \times Score_{card2} \times Score_{card3}}$
+* **For a pair of cards**: $Score_{pair} = \sqrt{Score_{card1} \times Score_{card2}}$
+* **For a trio of cards**: $Score_{trio} = \sqrt[3]{Score_{card1} \times Score_{card2} \times Score_{card3}}$
 
 To ensure numerical stability when multiplying many scores, the calculation is performed using logarithms in the SQL query within `post_process.py`.
 
@@ -164,9 +220,26 @@ To ensure numerical stability when multiplying many scores, the calculation is p
 
 ## How to Run the Code
 
-**Prerequisites:** Python 3.8+, DuckDB, Pandas, PyArrow, Numba, and tqdm.
+**Prerequisites:** Python 3.8+
 
-### Step 1: Generate Solutions
+### Step 1: Install Dependencies
+
+It is recommended to use a virtual environment to manage dependencies.
+
+```bash
+# Create and activate a virtual environment
+python3 -m venv venv
+source venv/bin/activate
+```
+
+Install the required packages using pip:
+
+```bash
+# Install all dependencies
+pip install -r requirements.txt
+```
+
+### Step 2: Generate Solutions
 
 Execute the main solver script.
 
@@ -176,7 +249,7 @@ python3 main.py
 
 **Important**: This is a computationally intensive process. On a modern multi-core CPU, it can take **hours or days** to complete. It will generate a very large Parquet file (approx. 5 GB) in the `generated_solutions/` directory.
 
-### Step 2: Analyze and Find Best Solutions
+### Step 3: Analyze and Find Best Solutions
 
 Once the generation is complete, run the post-processing script.
 
@@ -186,7 +259,7 @@ python3 post_process.py
 
 This script will read the large Parquet file, perform the entire DuckDB analysis, and generate the final databases and solution images. This step can also take several hours to complete.
 
-### Step 3: Run the Interactive Interface (Optional)
+### Step 4: Run the Interactive Interface (Optional)
 
 To run the interactive interface on your local machine, follow these steps:
 
@@ -201,3 +274,15 @@ To run the interactive interface on your local machine, follow these steps:
     ```
 
 3.  **Open your browser** and go to `http://localhost:8000`.
+
+## Results and Directory Structure
+
+  * `/docs`: Contains the static web interface.
+      * `/docs/data/best_solutions.json`: The key output file containing the optimal layout for all 2,625 card combinations.
+      * `/docs/data/percentiles.json`: The percentile scores for every statistic.
+  * `/generated_solutions`: The directory where the large `.parquet` files from the solver are stored.
+  * `/game`: Contains the JSON definitions for game tiles and cards.
+  * `main.py`: The main script to start the parallel solution generation.
+  * `solver.py`: Implements the core backtracking search algorithm.
+  * `post_process.py`: The script for analyzing the generated solutions with DuckDB.
+  * `analysis.py`: Contains all functions for calculating statistics for a given board layout.
