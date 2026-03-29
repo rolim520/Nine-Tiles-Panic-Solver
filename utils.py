@@ -80,13 +80,20 @@ def get_next_filename(directory, base_name="solutions", extension="parquet"):
     return os.path.join(directory, new_filename)
 
 def solution_to_flat_dict(solution):
-    """Converts a 3x3 grid solution into a flat dictionary for a DataFrame."""
+    """Converts a 1D list of 9 tuples into a flat dictionary for a DataFrame."""
     flat_data = {}
-    for r, row_data in enumerate(solution):
-        for c, tile_data in enumerate(row_data):
-            flat_data[f'piece_{r}{c}'] = tile_data[0]
-            flat_data[f'side_{r}{c}'] = tile_data[1]
-            flat_data[f'orient_{r}{c}'] = tile_data[2]
+    for position in range(9):
+        # A matemática mágica para manter o nome das colunas do banco de dados intacto
+        r = position // 3
+        c = position % 3
+        
+        tile_data = solution[position]
+        
+        # Converte para int nativo para agradar o DuckDB
+        flat_data[f'piece_{r}{c}'] = int(tile_data[0])
+        flat_data[f'side_{r}{c}'] = int(tile_data[1])
+        flat_data[f'orient_{r}{c}'] = int(tile_data[2])
+        
     return flat_data
 
 class SolutionWriter:

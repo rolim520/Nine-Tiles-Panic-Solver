@@ -1,7 +1,7 @@
 # analysis.py
 
 from collections import defaultdict, Counter, deque
-from constants import TILE_NODES
+from constants import TILE_NODES, NORTH, EAST, SOUTH, WEST
 
 STAT_KEYS = [
     "houses", "ufos", "girls", "boys", "dogs", "hamburgers",
@@ -191,20 +191,18 @@ def _process_road_for_stats(road):
 
 def _build_all_roads(solution, game_tiles):
     adj, edge_map = {i: [] for i in range(24)}, {}
-    for r in range(3):
-        for c in range(3):
-            (piece, side, orientation) = solution[r][c]
-            position = r * 3 + c
-            for road_info in game_tiles[piece][side].get("roads", []):
-                c1, c2 = road_info['connection']
-                g1 = TILE_NODES[position][(c1 + orientation) % 4]
-                g2 = TILE_NODES[position][(c2 + orientation) % 4]
-                adj[g1].append(g2); adj[g2].append(g1)
-                d = road_info.get('direction', -1)
-                target_node = -1
-                if d != -1: target_node = TILE_NODES[position][(d + orientation) % 4]
-                edge = tuple(sorted((g1, g2)))
-                edge_map[edge] = {'item': road_info.get('item', ''), 'target_node': target_node}
+    for position in range(9):
+        (piece, side, orientation) = solution[position]
+        for road_info in game_tiles[piece][side].get("roads", []):
+            c1, c2 = road_info['connection']
+            g1 = TILE_NODES[position][(c1 + orientation) % 4]
+            g2 = TILE_NODES[position][(c2 + orientation) % 4]
+            adj[g1].append(g2); adj[g2].append(g1)
+            d = road_info.get('direction', -1)
+            target_node = -1
+            if d != -1: target_node = TILE_NODES[position][(d + orientation) % 4]
+            edge = tuple(sorted((g1, g2)))
+            edge_map[edge] = {'item': road_info.get('item', ''), 'target_node': target_node}
 
     visited_nodes, all_roads = set(), []
     for i in range(24):
@@ -249,20 +247,18 @@ def _build_all_roads_from_uf(solution, game_tiles, uf_structure):
     """
     # PART 1: Collect ONLY the edge-to-item mapping. No adjacency list needed.
     edge_map = {}
-    for r in range(3):
-        for c in range(3):
-            (piece, side, orientation) = solution[r][c]
-            position = r * 3 + c
-            for road_info in game_tiles[piece][side].get("roads", []):
-                c1, c2 = road_info['connection']
-                g1 = TILE_NODES[position][(c1 + orientation) % 4]
-                g2 = TILE_NODES[position][(c2 + orientation) % 4]
-                d = road_info.get('direction', -1)
-                target_node = -1
-                if d != -1:
-                    target_node = TILE_NODES[position][(d + orientation) % 4]
-                edge = tuple(sorted((g1, g2)))
-                edge_map[edge] = {'item': road_info.get('item', ''), 'target_node': target_node}
+    for position in range(9):
+        (piece, side, orientation) = solution[position]
+        for road_info in game_tiles[piece][side].get("roads", []):
+            c1, c2 = road_info['connection']
+            g1 = TILE_NODES[position][(c1 + orientation) % 4]
+            g2 = TILE_NODES[position][(c2 + orientation) % 4]
+            d = road_info.get('direction', -1)
+            target_node = -1
+            if d != -1:
+                target_node = TILE_NODES[position][(d + orientation) % 4]
+            edge = tuple(sorted((g1, g2)))
+            edge_map[edge] = {'item': road_info.get('item', ''), 'target_node': target_node}
 
     # PART 2: Find road components using Union-Find (already optimal).
     components = defaultdict(list)
@@ -326,16 +322,16 @@ def _build_all_roads_from_uf(solution, game_tiles, uf_structure):
         
     return all_roads
 
-def analyze_road_network(solution, game_tiles, uf_structure=None):
+def analyze_road_network(solution, game_tiles, uf_structure):
     """
     Analyzes the road network of a solution.
     
-    If a pre-calculated uf_structure is provided, it uses the highly optimized
+    If a pre-calculated uf_structure is provided, it uses the optimized
     road-building function. Otherwise, it falls back to the original BFS-based method.
     """
     # Choose the road-building function based on whether uf_structure was provided.
     if uf_structure:
-        # Use the fast, optimized version
+        # Use the optimized version
         all_roads = _build_all_roads_from_uf(solution, game_tiles, uf_structure)
     else:
         # Fall back to the original, slower version
@@ -394,22 +390,22 @@ def find_largest_component_size(grid_properties, property_key):
 
 def calculate_adjacency_stats(solution, game_tiles):
     grid_properties = [[{} for _ in range(3)] for _ in range(3)]
-    for r in range(3):
-        for c in range(3):
-            (piece, side, _) = solution[r][c]
-            tile_data = game_tiles[piece][side]
-            grid_properties[r][c] = {
-                'dogs': tile_data.get('dogs', 0),
-                'houses': tile_data.get('houses', 0),
-                'citizens': tile_data.get('boys', 0) + tile_data.get('girls', 0),
-                'is_safe': 1 if tile_data.get('aliens', 0) == 0 else 0
-            }
+    for position in range(9):
+        r, c = position // 3, position % 3
+        (piece, side, _) = solution[position]
+        tile_data = game_tiles[piece][side]
+        grid_properties[r][c] = {
+            'dogs': tile_data.get('dogs', 0),
+            'houses': tile_data.get('houses', 0),
+            'citizens': tile_data.get('boys', 0) + tile_data.get('girls', 0),
+            'is_safe': 1 if tile_data.get('aliens', 0) == 0 else 0
+        }
     
     return {
         "largest_dog_group": find_largest_component_size(grid_properties, 'dogs'),
         "largest_house_group": find_largest_component_size(grid_properties, 'houses'),
         "largest_citizen_group": find_largest_component_size(grid_properties, 'citizens'),
-        "largest_safe_zone_size": find_largest_component_size(grid_properties, 'is_safe') # ALTERADO
+        "largest_safe_zone_size": find_largest_component_size(grid_properties, 'is_safe')
     }
 
 # =============================================================================
@@ -419,13 +415,12 @@ def calculate_adjacency_stats(solution, game_tiles):
 def calculate_solution_stats(solution, game_tiles, uf_structure=None):
     stats = {f"total_{key}": 0 for key in STAT_KEYS}
     stats["total_tiles_without_roads"] = 0
-    for r in range(3):
-        for c in range(3):
-            (piece, side, _) = solution[r][c]
-            tile_data = game_tiles[piece][side]
-            for key in STAT_KEYS:
-                if key in tile_data: stats[f"total_{key}"] += tile_data[key]
-            if not tile_data.get("roads"): stats["total_tiles_without_roads"] += 1
+    for position in range(9):
+        (piece, side, _) = solution[position]
+        tile_data = game_tiles[piece][side]
+        for key in STAT_KEYS:
+            if key in tile_data: stats[f"total_{key}"] += tile_data[key]
+        if not tile_data.get("roads"): stats["total_tiles_without_roads"] += 1
     
     road_stats = analyze_road_network(solution, game_tiles, uf_structure)
     stats["total_captured_aliens"] += road_stats.pop("aliens_caught", 0)
@@ -485,7 +480,7 @@ class UnionFind:
         return new_uf
 
 def _get_tile_connections(tile_data, orientation):
-    connections = [0, 0, 0, 0]  # Esquerda, Topo, Direita, Baixo
+    connections = [0, 0, 0, 0]  # [Norte, Leste, Sul, Oeste]
     if tile_data and tile_data.get("roads"):
         for road in tile_data["roads"]:
             c1, c2 = road['connection']
@@ -495,42 +490,44 @@ def _get_tile_connections(tile_data, orientation):
 
 def is_board_valid(board, game_tiles):
     # Checa se o tabuleiro está completamente preenchido
-    if any(tile is None or tile[0] == -1 for row in board for tile in row):
+    if any(tile is None or tile[0] == -1 for tile in board):
         return {'isValid': False, 'error': 'O tabuleiro não está completo.'}
 
     # Checa conexões horizontais
     for r in range(3):
         for c in range(2):
-            tile1_data = board[r][c]
-            tile2_data = board[r][c+1]
+            pos1 = r * 3 + c
+            pos2 = pos1 + 1
+            tile1_data = board[pos1]
+            tile2_data = board[pos2]
             tile1_conns = _get_tile_connections(game_tiles[tile1_data[0]][tile1_data[1]], tile1_data[2])
             tile2_conns = _get_tile_connections(game_tiles[tile2_data[0]][tile2_data[1]], tile2_data[2])
-            if tile1_conns[2] != tile2_conns[0]: # Direita do tile1 vs. Esquerda do tile2
-                return {'isValid': False, 'error': f'Peças na linha {r+1} não se conectam corretamente.'}
-
+            if tile1_conns[EAST] != tile2_conns[WEST]: 
+                return {'isValid': False, 'error': f'Peças nas posições {pos1} e {pos2} não conectam.'}
+    
     # Checa conexões verticais
     for r in range(2):
         for c in range(3):
-            tile1_data = board[r][c]
-            tile2_data = board[r+1][c]
+            pos1 = r * 3 + c
+            pos2 = pos1 + 3
+            tile1_data = board[pos1]
+            tile2_data = board[pos2]
             tile1_conns = _get_tile_connections(game_tiles[tile1_data[0]][tile1_data[1]], tile1_data[2])
             tile2_conns = _get_tile_connections(game_tiles[tile2_data[0]][tile2_data[1]], tile2_data[2])
-            if tile1_conns[3] != tile2_conns[1]: # Baixo do tile1 vs. Topo do tile2
-                return {'isValid': False, 'error': f'Peças na coluna {c+1} não se conectam corretamente.'}
-
+            if tile1_conns[SOUTH] != tile2_conns[NORTH]: 
+                return {'isValid': False, 'error': f'Peças nas posições {pos1} e {pos2} não conectam.'}
+            
     # Checa por ciclos
     uf = UnionFind(24)
-    for r in range(3):
-        for c in range(3):
-            piece, side, orientation = board[r][c]
-            tile_data = game_tiles[piece][side]
-            if tile_data.get("roads"):
-                for road in tile_data["roads"]:
-                    c1, c2 = road['connection']
-                    pos = r * 3 + c
-                    g1 = TILE_NODES[pos][(c1 + orientation) % 4]
-                    g2 = TILE_NODES[pos][(c2 + orientation) % 4]
-                    if uf.union(g1, g2):
-                        return {'isValid': False, 'error': 'Ciclo detectado na rede de estradas.'}
+    for position in range(9):
+        piece, side, orientation = board[position]
+        tile_data = game_tiles[piece][side]
+        if tile_data.get("roads"):
+            for road in tile_data["roads"]:
+                c1, c2 = road['connection']
+                g1 = TILE_NODES[position][(c1 + orientation) % 4]
+                g2 = TILE_NODES[position][(c2 + orientation) % 4]
+                if uf.union(g1, g2):
+                    return {'isValid': False, 'error': 'Ciclo detectado na rede de estradas.'}
 
     return {'isValid': True, 'error': None}
