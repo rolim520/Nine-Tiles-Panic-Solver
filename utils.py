@@ -1,10 +1,56 @@
 # utils.py
 import os
 import re
+import glob
+import duckdb
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from analysis import calculate_solution_stats
+
+def merge_parquet_files(temp_dir, final_output_path):
+    """
+    Finds all temporary parquet files, merges them into a single file using DuckDB,
+    and cleans up the temporary files. This method is memory-efficient.
+    """
+    print("\nMesclando resultados de todos os workers usando DuckDB...")
+    
+    temp_files_pattern = os.path.join(temp_dir, "*.parquet")
+
+    query = f"""
+    COPY (SELECT * FROM read_parquet('{temp_files_pattern}'))
+    TO '{final_output_path}'
+    WITH (FORMAT PARQUET);
+    """
+    
+    try:
+        temp_files_list = glob.glob(temp_files_pattern)
+        if not temp_files_list:
+            print("Nenhum arquivo temporário encontrado para mesclar.")
+            return
+
+        # --- MODIFICAÇÃO AQUI ---
+        # 1. Conecta a um banco de dados em memória
+        con = duckdb.connect()
+        
+        # 2. Define um limite de RAM. Ex: '16GB'. Ajuste conforme sua RAM disponível.
+        #    Use um valor seguro, como 50-70% da sua RAM total.
+        con.execute("PRAGMA memory_limit='16GB';")
+        
+        # 3. Executa a consulta de mesclagem usando a conexão configurada
+        print("  -> Iniciando a mesclagem com limite de memória. Isso pode levar algum tempo...")
+        con.execute(query)
+        
+        # 4. Fecha a conexão
+        con.close()
+        # --- FIM DA MODIFICAÇÃO ---
+        
+        for f in temp_files_list:
+            os.remove(f)
+        os.rmdir(temp_dir)
+        print(f"✅ Arquivos mesclados em '{final_output_path}' e arquivos temporários limpos.")
+    except Exception as e:
+        print(f"❌ Ocorreu um erro durante a mesclagem com o DuckDB: {e}")
 
 def get_next_filename(directory, base_name="solutions", extension="parquet"):
     """
