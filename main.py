@@ -1,6 +1,7 @@
 # main.py
 import json
 import os
+import time
 import multiprocessing
 import numpy as np
 
@@ -78,6 +79,8 @@ def generate_required_connections_candidates(tile_connections):
 
 def solve_for_task(task_config):
 
+    task_start_time = time.perf_counter()
+
     worker_id = task_config['id']
     tiling = task_config['tiling']
     domains = task_config['domains']
@@ -94,9 +97,22 @@ def solve_for_task(task_config):
         solution_generator = find_valid_tilings_generator(tiling, global_nodes, available_pieces, game_tiles, tile_connections, connections_candidates, uf_structure, domains)
         writer.process_solutions(solution_generator, game_tiles)
     
-    return writer.total_solutions_found
+    task_end_time = time.perf_counter()
+    task_duration = task_end_time - task_start_time
+    
+    # Opcional: Imprime na tela assim que o núcleo terminar
+    print(f"✅ Tarefa {worker_id} finalizada em {task_duration:.2f} segundos.")
+    
+    # Retorna um "relatório" em vez de só um número
+    return {
+        'worker_id': worker_id,
+        'solutions_found': writer.total_solutions_found,
+        'duration': task_duration
+    }
 
 def main():
+
+    total_start_time = time.perf_counter()
 
     # Load data and perform pre-computation
     with open('game/tiles/tiles.json', 'r', encoding='utf-8') as file:
@@ -107,22 +123,13 @@ def main():
 
     # Configurations for placing the first piece (Piece 6 generates the least branches)
     search_configs = [
-        {
-            "name": "Piece 6 at top-left corner",
-            "start_pos": 0,
-            "candidates": [(6, side, orient) for side in range(2) for orient in range(4)]
-        },
-        {
-            "name": "Piece 6 at top-center edge",
-            "start_pos": 1,
-            "candidates": [(6, side, orient) for side in range(2) for orient in range(4)]
-        },
-        {
-            "name": "Piece 6 at board center",
-            "start_pos": 4,
-            "candidates": [(6, 0, 0), (6, 1, 0)]
-        }
-    ]
+            {
+                "name": f"Piece {piece} at board center",
+                "start_pos": 4, 
+                "candidates": [(piece, 0, 0), (piece, 1, 0)] 
+            }
+            for piece in range(9)
+        ]
 
     # --- 2. PREPARE TASKS ---
     print("Preparing tasks (1 initial piece)...")
@@ -190,14 +197,30 @@ def main():
         results = pool.map(solve_for_task, tasks)
 
     # --- 4. MERGE AND FINALIZE ---
-    total_solutions = sum(results)
+    # Como 'results' agora é uma lista de dicionários, precisamos somar assim:
+    total_solutions = sum(r['solutions_found'] for r in results)
+    
     final_parquet_path = get_next_filename("generated_solutions", "tiling_solutions")
     merge_parquet_files(TEMP_DIR, final_parquet_path)
 
-    print("\n-------------------------------------------")
-    print(f"✅ All tasks complete. Found a total of {total_solutions:,} solutions.")
-    print("-------------------------------------------")
+    # PARA O CRONÔMETRO GLOBAL
+    total_end_time = time.perf_counter()
+    total_duration = total_end_time - total_start_time
 
+    # --- IMPRIME O RELATÓRIO FINAL ---
+    print("\n===========================================")
+    print(" 📊 RELATÓRIO DE DESEMPENHO DOS NÚCLEOS")
+    print("===========================================")
+    # Ordena os resultados do mais demorado para o mais rápido
+    results_sorted = sorted(results, key=lambda x: x['duration'], reverse=True)
+    for r in results_sorted:
+        print(f"Tarefa {r['worker_id']:02d} | Tempo: {r['duration']:7.2f}s | Soluções: {r['solutions_found']:,}")
+
+    print("\n-------------------------------------------")
+    print(f"✅ Execução finalizada!")
+    print(f"🧩 Total de soluções encontradas: {total_solutions:,}")
+    print(f"⏱️ Tempo Total Absoluto: {total_duration:.2f} segundos ({(total_duration/60):.2f} minutos)")
+    print("-------------------------------------------")
 
 if __name__ == "__main__":
     main()
