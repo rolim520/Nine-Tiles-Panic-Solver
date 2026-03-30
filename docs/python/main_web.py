@@ -24,7 +24,11 @@ def validate_current_board_js(*args):
     solution_grid = _get_solution_grid()
     game_tiles = json.loads(window.JSON.stringify(js_gameData.tiles))
     
-    validation_result = analysis.is_board_valid(solution_grid, game_tiles)
+    # Achata a matriz 2D (3x3) em uma lista 1D de 9 posições
+    flat_grid = [tile for row in solution_grid for tile in row]
+
+    # Passe o flat_grid no lugar do solution_grid
+    validation_result = analysis.is_board_valid(flat_grid, game_tiles)
     
     window.validationCallback(json.dumps(validation_result))
 
