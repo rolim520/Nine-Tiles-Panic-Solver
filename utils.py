@@ -29,13 +29,16 @@ def merge_parquet_files(temp_dir, final_output_path):
             print("Nenhum arquivo temporário encontrado para mesclar.")
             return
 
-        # --- MODIFICAÇÃO AQUI ---
         # 1. Conecta a um banco de dados em memória
         con = duckdb.connect()
         
         # 2. Define um limite de RAM. Ex: '16GB'. Ajuste conforme sua RAM disponível.
         #    Use um valor seguro, como 50-70% da sua RAM total.
         con.execute("PRAGMA memory_limit='16GB';")
+        
+        # 2.1. Define o diretório temporário (Válvula de escape para o SSD)
+        # Usamos a própria pasta temp_dir para o DuckDB jogar os dados de overflow
+        con.execute(f"PRAGMA temp_directory='{temp_dir}';")
         
         # 3. Executa a consulta de mesclagem usando a conexão configurada
         print("  -> Iniciando a mesclagem com limite de memória. Isso pode levar algum tempo...")
