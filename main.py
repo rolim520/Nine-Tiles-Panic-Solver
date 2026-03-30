@@ -78,8 +78,11 @@ def generate_required_connections_candidates(tile_connections):
     return connections_candidates
 
 def solve_for_task(task_config):
-
-    task_start_time = time.perf_counter()
+    # Usa time.time() para ter o timestamp real (ideal para alinhar gráficos de linha do tempo)
+    task_start_time = time.time()
+    
+    # Captura o ID do Processo do Sistema Operacional (O seu "Núcleo")
+    process_id = os.getpid() 
 
     worker_id = task_config['id']
     tiling = task_config['tiling']
@@ -97,22 +100,22 @@ def solve_for_task(task_config):
         solution_generator = find_valid_tilings_generator(tiling, global_nodes, available_pieces, game_tiles, tile_connections, connections_candidates, uf_structure, domains)
         writer.process_solutions(solution_generator, game_tiles)
     
-    task_end_time = time.perf_counter()
+    task_end_time = time.time()
     task_duration = task_end_time - task_start_time
     
-    # Opcional: Imprime na tela assim que o núcleo terminar
-    print(f"✅ Tarefa {worker_id} finalizada em {task_duration:.2f} segundos.")
-    
-    # Retorna um "relatório" em vez de só um número
+    # Retorna o relatório turbinado com os dados para o gráfico
     return {
         'worker_id': worker_id,
-        'solutions_found': writer.total_solutions_found,
-        'duration': task_duration
+        'pid': process_id,
+        'start_time': task_start_time,
+        'end_time': task_end_time,
+        'duration': task_duration,
+        'solutions_found': writer.total_solutions_found
     }
 
 def main():
 
-    total_start_time = time.perf_counter()
+    global_start_time = time.time()
 
     # Load data and perform pre-computation
     with open('game/tiles/tiles.json', 'r', encoding='utf-8') as file:
@@ -205,16 +208,40 @@ def main():
 
     # PARA O CRONÔMETRO GLOBAL
     total_end_time = time.perf_counter()
-    total_duration = total_end_time - total_start_time
+    total_duration = total_end_time - global_start_time
 
     # --- IMPRIME O RELATÓRIO FINAL ---
-    print("\n===========================================")
-    print(" 📊 RELATÓRIO DE DESEMPENHO DOS NÚCLEOS")
-    print("===========================================")
-    # Ordena os resultados do mais demorado para o mais rápido
-    results_sorted = sorted(results, key=lambda x: x['duration'], reverse=True)
+    print("\n==========================================================================")
+    print(" 📊 RELATÓRIO DE DESEMPENHO E ESCALONAMENTO DOS NÚCLEOS")
+    print("==========================================================================")
+    
+    # Ordena os resultados pelo tempo de início (ajuda a visualizar a ordem cronológica)
+    results_sorted = sorted(results, key=lambda x: x['start_time'])
+    
+    print(f"{'TAREFA':<8} | {'PID (CORE)':<10} | {'INÍCIO (s)':<12} | {'DURAÇÃO (s)':<12} | {'SOLUÇÕES'}")
+    print("-" * 74)
+    
+    # Lista para salvar os dados se quiser exportar para um JSON/CSV de gráficos depois
+    chart_data = []
+
     for r in results_sorted:
-        print(f"Tarefa {r['worker_id']:02d} | Tempo: {r['duration']:7.2f}s | Soluções: {r['solutions_found']:,}")
+        # Calcula em qual segundo do programa essa tarefa começou a rodar
+        relative_start = r['start_time'] - global_start_time
+        
+        print(f"Task {r['worker_id']:02d} | PID {r['pid']:<6} | Começou em {relative_start:5.2f}s | Durou: {r['duration']:7.2f}s | {r['solutions_found']:,}")
+        
+        chart_data.append({
+            "Task": r['worker_id'],
+            "Core_PID": r['pid'],
+            "Start": relative_start,
+            "Duration": r['duration']
+        })
+
+    # Opcional: Salvar os dados do gráfico em um arquivo JSON para usar depois
+    with open("gantt_chart_data.json", "w") as f:
+        json.dump(chart_data, f, indent=4)
+
+    total_duration = time.time() - global_start_time
 
     print("\n-------------------------------------------")
     print(f"✅ Execução finalizada!")
