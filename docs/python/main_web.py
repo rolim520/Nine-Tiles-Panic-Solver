@@ -39,8 +39,12 @@ def analyze_current_board_js(*args):
     solution_grid = _get_solution_grid()
     game_tiles = json.loads(window.JSON.stringify(js_gameData.tiles))
     
-    stats_dict = analysis.calculate_solution_stats(solution_grid, game_tiles)
+    # Achata a matriz 2D (3x3) em uma lista 1D de 9 posições
+    flat_grid = [tile for row in solution_grid for tile in row]
     
+    # Passe o flat_grid no lugar do solution_grid
+    stats_dict = analysis.calculate_solution_stats(flat_grid, game_tiles) 
+
     window.updateStatsCallback(json.dumps(stats_dict))
 
 # Expõe as funções para o JavaScript, tornando-as globais
