@@ -1,14 +1,12 @@
-# solver.py
-
 from constants import TILE_NODES, NEIGHBOURS, WEST, NORTH, EAST, SOUTH
 
-def update_position_domain(global_nodes, position, available_pieces, connections_candidates):
+def update_position_domain(node_states, position, available_pieces, connections_candidates):
     
     required_connections = [-1, -1, -1, -1]
-    required_connections[NORTH] = global_nodes[TILE_NODES[position][NORTH]]
-    required_connections[EAST] = global_nodes[TILE_NODES[position][EAST]]
-    required_connections[SOUTH] = global_nodes[TILE_NODES[position][SOUTH]]
-    required_connections[WEST] = global_nodes[TILE_NODES[position][WEST]]
+    required_connections[NORTH] = node_states[TILE_NODES[position][NORTH]]
+    required_connections[EAST] = node_states[TILE_NODES[position][EAST]]
+    required_connections[SOUTH] = node_states[TILE_NODES[position][SOUTH]]
+    required_connections[WEST] = node_states[TILE_NODES[position][WEST]]
 
     candidates = connections_candidates[tuple(required_connections)]
     domain = [candidate for candidate in candidates if candidate[0] in available_pieces]
@@ -16,20 +14,17 @@ def update_position_domain(global_nodes, position, available_pieces, connections
     return domain
 
 
-def find_valid_tilings_generator(tiling, global_nodes, available_pieces, game_tiles, tile_connections, connections_candidates, uf_structure, domains):
+def find_valid_boards_generator(board_state, node_states, available_pieces, game_tiles, tile_connections, connections_candidates, uf_structure, domains):
     
-    # 1. Encontra as posições disponiveis
     available_positions = [i for i in range(9) if domains[i] is not None]
     
     if not available_positions:
-        # Não tem mais posições vazias, achamos uma solução! (Removemos o .tolist())
-        yield tiling, uf_structure
+        yield board_state, uf_structure
         return
 
-    # 2. MRV: Pega a posição com o menor domínio
+    # Gets the position with the smallest domain (MRV)
     position = min(available_positions, key=lambda i: len(domains[i]))
     
-    # Itera sobre os candidatos para a célula escolhida
     for candidate in domains[position]:
         uf_copy = uf_structure.copy()
         cycle_found = False
@@ -46,35 +41,32 @@ def find_valid_tilings_generator(tiling, global_nodes, available_pieces, game_ti
         if cycle_found:
             continue
 
-        # 3. Aplica a jogada
-        tiling[position] = candidate
+        board_state[position] = candidate
         available_pieces.remove(piece)
 
-        # 4. Cópia rápida dos estados (Nativo em C, super rápido)
         new_domains = domains[:]
         new_domains[position] = None
-        new_global_nodes = global_nodes[:]
+        new_node_states = node_states[:]
         
-        # 5. Atualiza o grafo global com a nova peça usando o padrão N-E-S-W
         piece_conns = tile_connections[piece][side][orientation]
-        new_global_nodes[TILE_NODES[position][NORTH]] = piece_conns[NORTH]
-        new_global_nodes[TILE_NODES[position][EAST]]  = piece_conns[EAST]
-        new_global_nodes[TILE_NODES[position][SOUTH]] = piece_conns[SOUTH]
-        new_global_nodes[TILE_NODES[position][WEST]]  = piece_conns[WEST]
+        new_node_states[TILE_NODES[position][NORTH]] = piece_conns[NORTH]
+        new_node_states[TILE_NODES[position][EAST]]  = piece_conns[EAST]
+        new_node_states[TILE_NODES[position][SOUTH]] = piece_conns[SOUTH]
+        new_node_states[TILE_NODES[position][WEST]]  = piece_conns[WEST]
 
         dead_end_found = False
         neighbors = NEIGHBOURS[position]
         
-        # 6. Forward Checking Híbrido
+        # Forward Checking
         for pos in range(9):
             if new_domains[pos] is None:
                 continue
                 
             if pos in neighbors:
-                # Vizinho ortogonal: recalcula usando a sua nova função de domínio
-                updated_domain = update_position_domain(new_global_nodes, pos, available_pieces, connections_candidates)
+                # Orthogonal neighbor: recalculates using your new domain function
+                updated_domain = update_position_domain(new_node_states, pos, available_pieces, connections_candidates)
             else:
-                # Buraco distante: a topologia é a mesma, só tira a peça que gastei
+                # Distant hole: topology is the same, just remove the used piece
                 updated_domain = [cand for cand in new_domains[pos] if cand[0] != piece]
 
             if not updated_domain:
@@ -83,16 +75,16 @@ def find_valid_tilings_generator(tiling, global_nodes, available_pieces, game_ti
             
             new_domains[pos] = updated_domain
 
-        # Se um beco sem saída foi encontrado, poda o galho inteiro
+        # If a dead end is found, prunes the entire branch
         if dead_end_found:
             available_pieces.add(piece)
-            tiling[position] = None
+            board_state[position] = None
             continue
 
-        # Desce o nível na árvore
-        for solution, final_uf in find_valid_tilings_generator(tiling, new_global_nodes, available_pieces, game_tiles, tile_connections, connections_candidates, uf_copy, new_domains):
+        # Goes down a level in the tree
+        for solution, final_uf in find_valid_boards_generator(board_state, new_node_states, available_pieces, game_tiles, tile_connections, connections_candidates, uf_copy, new_domains):
             yield solution, final_uf
 
-        # Desfaz a jogada (Backtrack)
+        # Undoes the move (Backtrack)
         available_pieces.add(piece)
-        tiling[position] = None
+        board_state[position] = None

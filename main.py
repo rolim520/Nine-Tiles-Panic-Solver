@@ -1,93 +1,83 @@
-# main.py
 import json
 import os
 import time
 import multiprocessing
 import numpy as np
 
-from solver import find_valid_tilings_generator, update_position_domain
+from solver import find_valid_boards_generator, update_position_domain
 from analysis import UnionFind
 from utils import SolutionWriter, get_next_filename, merge_parquet_files
 from constants import NUM_NODES, TILE_NODES, NORTH, EAST, SOUTH, WEST
 
 # --- Constants for the main script ---
 CHUNK_SIZE = 100_000
-TEMP_DIR = "temp_solutions" # A dedicated folder for temporary files
+TEMP_DIR = "temp_solutions"
 
 def generate_tile_connections(game_tiles):
-    # Cria um array NumPy 4D com formato (peça, lado, orientação, conexões)
-    # Ex: (9 peças, 2 lados, 4 orientações, 4 pontos de conexão)
+    # Creates a 4D NumPy array with format (piece, side, orientation, connections)
+    # E.g.: (9 pieces, 2 sides, 4 orientations, 4 connection points)
     tile_conns_array = np.zeros((9, 2, 4, 4), dtype=np.int8)
 
     for piece in range(9):
         for side in range(2):
-            # 1. Calcula as conexões base para a orientação 0
+            # 1. Calculates the base connections for orientation 0
             base_connections = np.zeros(4, dtype=np.int8)
-            # A verificação de segurança para "roads" é mantida
             if side < len(game_tiles[piece]) and "roads" in game_tiles[piece][side]:
                 for road in game_tiles[piece][side]["roads"]:
                     base_connections[road['connection'][0]] = 1
                     base_connections[road['connection'][1]] = 1
             
-            # 2. Usa np.roll para gerar eficientemente todas as orientações
+            # 2. Uses np.roll to efficiently generate all orientations
             for orientation in range(4):
-                # np.roll "gira" os elementos do array, simulando a rotação
                 tile_conns_array[piece, side, orientation] = np.roll(base_connections, shift=orientation)
     return tile_conns_array
 
 def generate_required_connections_candidates(tile_connections):
     """
-    Cria um dicionário que mapeia uma tupla de conexões requeridas
-    para uma lista de peças/lados/orientações candidatas.
+    Creates a dictionary mapping a required connections tuple
+    to a list of candidate pieces/sides/orientations.
     """
 
     def connects(required_connections, tile_connections_to_check):
-        # Itera sobre os 4 lados (0: Norte, 1: Leste, 2: Sul, 3: Oeste)
+        # Iterates over the 4 sides (0: North, 1: East, 2: South, 3: West)
         for i in range(4):
-            # Se uma conexão é exigida (não é -1) e não bate com a da peça, não é válida.
             if required_connections[i] != -1 and required_connections[i] != tile_connections_to_check[i]:
                 return False
         return True
 
-    # Use um dicionário para o mapeamento. É a estrutura ideal para isso.
     connections_candidates = {}
 
-    # Itera sobre todas as combinações de conexões possíveis (-1, 0, 1)
-    for i in range(-1, 2):  # Conexão Norte
-        for j in range(-1, 2):  # Conexão Leste
-            for k in range(-1, 2):  # Conexão Sul
-                for l in range(-1, 2): # Conexão Oeste
+    # Iterates over all possible connection combinations (-1, 0, 1)
+    for i in range(-1, 2):  # North connection
+        for j in range(-1, 2):  # East connection
+            for k in range(-1, 2):  # South connection
+                for l in range(-1, 2): # West connection
 
                     required_key = (i, j, k, l)
                     candidates_for_key = []
 
-                    # Agora, encontre todas as peças que satisfazem essa exigência
+                    # Finds all pieces that satisfy this requirement
                     for piece in range(9):
                         for side in range(2):
                             for orientation in range(4):
-                                # Pega as conexões da peça atual
                                 current_tile_conns = tile_connections[piece, side, orientation]
                                 
-                                # Se a peça for compatível, adicione à lista de candidatos
                                 if connects(required_key, current_tile_conns):
                                     candidates_for_key.append((piece, side, orientation))
 
-                    # Armazena a lista de candidatos no dicionário
                     connections_candidates[required_key] = candidates_for_key
 
     return connections_candidates
 
 def solve_for_task(task_config):
-    # Usa time.time() para ter o timestamp real (ideal para alinhar gráficos de linha do tempo)
+
     task_start_time = time.time()
-    
-    # Captura o ID do Processo do Sistema Operacional (O seu "Núcleo")
     process_id = os.getpid() 
 
     worker_id = task_config['id']
-    tiling = task_config['tiling']
+    board_state = task_config['board_state']
     domains = task_config['domains']
-    global_nodes = task_config['global_nodes']
+    node_states = task_config['node_states']
     available_pieces = task_config['available_pieces']
     uf_structure = task_config['uf_structure']
     game_tiles = task_config['game_tiles']
@@ -97,13 +87,12 @@ def solve_for_task(task_config):
     temp_file_path = os.path.join(TEMP_DIR, f"solutions_{worker_id}.parquet")
     
     with SolutionWriter(temp_file_path, CHUNK_SIZE, silent=True, worker_id=worker_id) as writer:
-        solution_generator = find_valid_tilings_generator(tiling, global_nodes, available_pieces, game_tiles, tile_connections, connections_candidates, uf_structure, domains)
+        solution_generator = find_valid_boards_generator(board_state, node_states, available_pieces, game_tiles, tile_connections, connections_candidates, uf_structure, domains)
         writer.process_solutions(solution_generator, game_tiles)
     
     task_end_time = time.time()
     task_duration = task_end_time - task_start_time
     
-    # Retorna o relatório turbinado com os dados para o gráfico
     return {
         'worker_id': worker_id,
         'pid': process_id,
@@ -124,7 +113,7 @@ def main():
     tile_connections = generate_tile_connections(game_tiles)
     connections_candidates = generate_required_connections_candidates(tile_connections)
 
-    # Configurations for placing the first piece (Piece 6 generates the least branches)
+    # Configurations for placing the first piece
     search_configs = [
             {
                 "name": f"Piece {piece} at board center",
@@ -134,7 +123,6 @@ def main():
             for piece in range(9)
         ]
 
-    # --- 2. PREPARE TASKS ---
     print("Preparing tasks (1 initial piece)...")
     tasks = []
     task_id_counter = 0
@@ -147,29 +135,25 @@ def main():
 
             start_position = config['start_pos']
 
-            tiling = [None] * 9
-            tiling[start_position] = candidate
+            board_state = [None] * 9
+            board_state[start_position] = candidate
 
-            # Nasce a lista de 24 nós (todos -1)
-            global_nodes = [-1] * 24
+            node_states = [-1] * 24
 
-            # Preenche os 4 nós da primeira peça jogada
             candidate_connections = tile_connections[piece][side][orientation]
-            global_nodes[TILE_NODES[start_position][NORTH]] = candidate_connections[NORTH]
-            global_nodes[TILE_NODES[start_position][SOUTH]] = candidate_connections[SOUTH]
-            global_nodes[TILE_NODES[start_position][EAST]] = candidate_connections[EAST]
-            global_nodes[TILE_NODES[start_position][WEST]] = candidate_connections[WEST]
+            node_states[TILE_NODES[start_position][NORTH]] = candidate_connections[NORTH]
+            node_states[TILE_NODES[start_position][SOUTH]] = candidate_connections[SOUTH]
+            node_states[TILE_NODES[start_position][EAST]] = candidate_connections[EAST]
+            node_states[TILE_NODES[start_position][WEST]] = candidate_connections[WEST]
 
             available_pieces = set(range(9))
             available_pieces.remove(piece)
 
-            # Atualização dos domínios
             domains = [None] * 9
             for position in range(9):
                 if position != start_position:
-                    domains[position] = update_position_domain(global_nodes, position, available_pieces, connections_candidates)
+                    domains[position] = update_position_domain(node_states, position, available_pieces, connections_candidates)
                     
-            # Cria a estrutura UnionFind para a tarefa
             uf = UnionFind(NUM_NODES)
             for road in game_tiles[piece][side]["roads"]:
                 l_conn1, l_conn2 = road['connection']
@@ -177,12 +161,11 @@ def main():
                 g_id2 = TILE_NODES[start_position][(l_conn2 + orientation) % 4]
                 uf.union(g_id1, g_id2)
 
-            # Empacota a tarefa
             tasks.append({
                 'id': task_id_counter,
-                'tiling': tiling,
+                'board_state': board_state,
                 'domains': domains,
-                'global_nodes': global_nodes,
+                'node_states': node_states,
                 'available_pieces': available_pieces,
                 'uf_structure': uf,
                 'game_tiles': game_tiles,
@@ -191,7 +174,6 @@ def main():
             })
             task_id_counter += 1
 
-    # --- 3. RUN IN PARALLEL ---
     cpu_count = os.cpu_count()
     print(f"Distributing {len(tasks)} tasks across {cpu_count} CPU cores...")
     os.makedirs(TEMP_DIR, exist_ok=True)
@@ -199,36 +181,29 @@ def main():
     with multiprocessing.Pool(cpu_count) as pool:
         results = pool.map(solve_for_task, tasks)
 
-    # --- 4. MERGE AND FINALIZE ---
-    # Como 'results' agora é uma lista de dicionários, precisamos somar assim:
     total_solutions = sum(r['solutions_found'] for r in results)
     
     final_parquet_path = get_next_filename("generated_solutions", "tiling_solutions")
     merge_parquet_files(TEMP_DIR, final_parquet_path)
 
-    # PARA O CRONÔMETRO GLOBAL
-    total_end_time = time.perf_counter()
-    total_duration = total_end_time - global_start_time
+    total_duration = time.time() - global_start_time
 
-    # --- IMPRIME O RELATÓRIO FINAL ---
     print("\n==========================================================================")
-    print(" 📊 RELATÓRIO DE DESEMPENHO E ESCALONAMENTO DOS NÚCLEOS")
+    print(" 📊 CORE PERFORMANCE AND SCHEDULING REPORT")
     print("==========================================================================")
     
-    # Ordena os resultados pelo tempo de início (ajuda a visualizar a ordem cronológica)
+    # Sorts results by start time (helps visualize chronological order)
     results_sorted = sorted(results, key=lambda x: x['start_time'])
     
-    print(f"{'TAREFA':<8} | {'PID (CORE)':<10} | {'INÍCIO (s)':<12} | {'DURAÇÃO (s)':<12} | {'SOLUÇÕES'}")
+    print(f"{'TASK':<8} | {'PID (CORE)':<10} | {'START (s)':<12} | {'DURATION (s)':<12} | {'SOLUTIONS'}")
     print("-" * 74)
     
-    # Lista para salvar os dados se quiser exportar para um JSON/CSV de gráficos depois
     chart_data = []
 
     for r in results_sorted:
-        # Calcula em qual segundo do programa essa tarefa começou a rodar
         relative_start = r['start_time'] - global_start_time
         
-        print(f"Task {r['worker_id']:02d} | PID {r['pid']:<6} | Começou em {relative_start:5.2f}s | Durou: {r['duration']:7.2f}s | {r['solutions_found']:,}")
+        print(f"Task {r['worker_id']:02d} | PID {r['pid']:<6} | Started at {relative_start:5.2f}s | Duration: {r['duration']:7.2f}s | {r['solutions_found']:,}")
         
         chart_data.append({
             "Task": r['worker_id'],
@@ -237,16 +212,13 @@ def main():
             "Duration": r['duration']
         })
 
-    # Opcional: Salvar os dados do gráfico em um arquivo JSON para usar depois
     with open("gantt_chart_data.json", "w") as f:
         json.dump(chart_data, f, indent=4)
 
-    total_duration = time.time() - global_start_time
-
     print("\n-------------------------------------------")
-    print(f"✅ Execução finalizada!")
-    print(f"🧩 Total de soluções encontradas: {total_solutions:,}")
-    print(f"⏱️ Tempo Total Absoluto: {total_duration:.2f} segundos ({(total_duration/60):.2f} minutos)")
+    print(f"✅ Execution finished!")
+    print(f"🧩 Total solutions found: {total_solutions:,}")
+    print(f"⏱️ Absolute Total Time: {total_duration:.2f} seconds ({(total_duration/60):.2f} minutes)")
     print("-------------------------------------------")
 
 if __name__ == "__main__":
