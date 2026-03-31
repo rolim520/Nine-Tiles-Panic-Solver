@@ -114,14 +114,39 @@ def main():
     connections_candidates = generate_required_connections_candidates(tile_connections)
 
     # Configurations for placing the first piece
-    search_configs = [
-            {
-                "name": f"Piece {piece} at board center",
-                "start_pos": 4, 
-                "candidates": [(piece, 0, 0), (piece, 1, 0)] 
-            }
-            for piece in range(9)
+    # Mapping of the 18 specific tasks ordered from slowest to fastest based on previous runs
+    # Format: (piece, side)
+    ordered_tasks = [
+            (4, 0),  # Duration: 41717s
+            (5, 1),  # Duration: 35580s
+            (3, 0),  # Duration: 34806s
+            (2, 1),  # Duration: 34409s
+            (0, 1),  # Duration: 33900s
+            (6, 0),  # Duration: 31081s
+            (1, 0),  # Duration: 29870s
+            (8, 1),  # Duration: 28606s
+            (1, 1),  # Duration: 28512s
+            (0, 0),  # Duration: 27168s
+            (3, 1),  # Duration: 26797s
+            (5, 0),  # Duration: 26240s
+            (2, 0),  # Duration: 26154s
+            (7, 1),  # Duration: 19362s
+            (7, 0),  # Duration: 17951s
+            (4, 1),  # Duration:  6332s
+            (8, 0),  # Duration:  4767s
+            (6, 1)   # Duration:  2577s
         ]
+
+    # Generates the 18 configurations in the optimal execution order
+    search_configs = [
+        {
+            "name": f"Piece {piece} (Side {side}) at board center",
+            "start_pos": 4, 
+            "candidates": [(piece, side, 0)] # Orientation is always 0 for the first piece
+        }
+        for piece, side in ordered_tasks
+    ]
+    # -------------------------------------------------------------------------
 
     print("Preparing tasks (1 initial piece)...")
     tasks = []
