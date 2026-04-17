@@ -5,10 +5,9 @@ import os, re
 import json
 import sys
 import time
-# A importação da PIL não é mais necessária
 
 # =============================================================================
-# CONFIGURAÇÃO (ATUALIZADA)
+# CONFIGURAÇÃO
 # =============================================================================
 GAME_CARDS_PATH = 'game/cards/cards.json'
 SOURCE_SOLUTIONS_DIR = 'generated_solutions'
@@ -20,8 +19,6 @@ TEMP_DIR = 'temp'
 
 # O único arquivo de banco de dados usado para todo o processamento
 MAIN_DB_PATH = os.path.join(DATABASES_OUTPUT_DIR, 'solutions.duckdb')
-
-# Os caminhos para os arquivos de DB separados foram removidos
 
 STAT_COLUMNS = [
     "total_houses", "total_girls", "total_boys", "total_dogs",
@@ -36,7 +33,7 @@ STAT_COLUMNS = [
 ]
 
 # =============================================================================
-# FUNÇÕES AUXILIARES (sem a parte de imagem)
+# FUNÇÕES AUXILIARES
 # =============================================================================
 
 def find_latest_solution_file(directory, base_name="tiling_solutions", extension="parquet"):
@@ -57,11 +54,8 @@ def find_latest_solution_file(directory, base_name="tiling_solutions", extension
     else:
         return None, f"Nenhum arquivo de solução (ex: '{base_name}_1.{extension}') encontrado em '{directory}'."
 
-# Funções relacionadas à geração de imagem foram removidas
-# (sanitize_folder_name, init_worker, load_and_rotate_tile_image, etc.)
-
 # =============================================================================
-# FUNÇÕES DE PROCESSAMENTO DE DADOS (ATUALIZADAS)
+# FUNÇÕES DE PROCESSAMENTO DE DADOS
 # =============================================================================
 
 def create_db_from_parquet(parquet_file_path):
@@ -89,7 +83,7 @@ def create_db_from_parquet(parquet_file_path):
             pos = f"{r}{c}"
             all_parquet_columns.extend([f"piece_{pos}", f"side_{pos}", f"orient_{pos}"])
     
-    select_clauses = ["ROW_NUMBER() OVER () AS solution_id"]
+    select_clauses = ["ROW_NUMBER() OVER ()duckdb  AS solution_id"]
     for col in all_parquet_columns:
         select_clauses.append(f'CAST("{col}" AS UTINYINT) AS "{col}"')
     
@@ -125,18 +119,22 @@ def calculate_percentiles():
     stat_columns_list = ", ".join([f'"{col}"' for col in STAT_COLUMNS])
 
     unpivot_query = f"""
-        INSERT INTO stat_percentiles
-        WITH ValueCounts AS (
-            SELECT stat_name, stat_value, COUNT(*) as frequency
-            FROM (UNPIVOT solutions ON {stat_columns_list} INTO NAME stat_name VALUE stat_value) AS unpivoted_data
-            GROUP BY stat_name, stat_value
-        )
-        SELECT
-            stat_name,
-            CAST(stat_value AS UTINYINT),
-            CAST(frequency AS UBIGINT),
-            CAST((PERCENT_RANK() OVER (PARTITION BY stat_name ORDER BY stat_value)) * 100 AS REAL) as percentile
-        FROM ValueCounts;
+            INSERT INTO stat_percentiles
+            WITH ValueCounts AS (
+                SELECT stat_name, stat_value, COUNT(*) as frequency
+                FROM (UNPIVOT solutions ON {stat_columns_list} INTO NAME stat_name VALUE stat_value) AS unpivoted_data
+                GROUP BY stat_name, stat_value
+            )
+            SELECT
+                stat_name,
+                CAST(stat_value AS UTINYINT),
+                CAST(frequency AS UBIGINT),
+                CAST(
+                    (SUM(frequency) OVER (PARTITION BY stat_name ORDER BY stat_value ASC) * 100.0) 
+                    / 
+                    SUM(frequency) OVER (PARTITION BY stat_name)
+                AS REAL) as percentile
+            FROM ValueCounts;
     """
 
     
