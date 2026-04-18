@@ -18,7 +18,11 @@ def merge_parquet_files(temp_dir, final_output_path):
     temp_files_pattern = os.path.join(temp_dir, "*.parquet")
 
     query = f"""
-    COPY (SELECT * FROM read_parquet('{temp_files_pattern}'))
+    COPY (
+        SELECT 
+            CAST(ROW_NUMBER() OVER () AS UBIGINT) AS solution_id, 
+            * FROM read_parquet('{temp_files_pattern}')
+    )
     TO '{final_output_path}'
     WITH (FORMAT PARQUET);
     """
