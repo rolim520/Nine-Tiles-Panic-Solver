@@ -79,7 +79,7 @@ def calculate_percentiles():
     con.execute(f"PRAGMA threads={os.cpu_count()};")
     con.execute("PRAGMA enable_progress_bar=true;")
     
-    con.execute("CREATE OR REPLACE TABLE stat_percentiles (stat_name VARCHAR, stat_value UTINYINT, frequency UBIGINT, percentile REAL);")
+    con.execute("CREATE OR REPLACE TABLE stat_percentiles (stat_name VARCHAR, stat_value UTINYINT, frequency UBIGINT, percentile DOUBLE);")
 
     union_queries = []
     
@@ -93,7 +93,7 @@ def calculate_percentiles():
                 (SUM(COUNT(*)) OVER (ORDER BY "{stat}" ASC) * 100.0) 
                 / 
                 SUM(COUNT(*)) OVER ()
-            AS REAL) AS percentile
+            AS DOUBLE) AS percentile
         FROM solutions
         GROUP BY "{stat}"
         """
