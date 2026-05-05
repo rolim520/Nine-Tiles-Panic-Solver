@@ -8,7 +8,7 @@ const ASSETS_PATH = 'assets';
 let gameData = {
     tiles: [],
     cards: [],
-    solutions: {},
+    paretoFront: {},
     percentiles: {},
     cardMap: new Map(),
 };
@@ -19,6 +19,8 @@ let appState = {
     selectedTile: null,
     firstSelectedTileIndex: null,
     longPressTimer: null,
+    currentParetoSolutions: [],
+    currentParetoIndex: 0,
 };
 
 // Expondo para o Brython
@@ -50,7 +52,7 @@ async function loadData() {
         gameData.tiles = await loadFile('data/tiles.json', 'tile definitions');
         gameData.cards = await loadFile('data/cards.json', 'card definitions');
         gameData.cardMap = new Map(gameData.cards.map(card => [card.number, card]));
-        gameData.solutions = await loadFile('data/best_solutions.json', 'optimal solutions');
+        gameData.paretoFront = await loadFile('data/pareto_front.json', 'pareto front solutions');
         gameData.percentiles = await loadFile('data/percentiles.json', 'percentile data');
         document.getElementById('loading-text').textContent = "Data loaded successfully!";
         return true;
@@ -112,15 +114,26 @@ function renderCardSelection() {
     desktopGrid.innerHTML = '';
     mobileGrid.innerHTML = '';
 
+    // Verifica se já selecionamos 3 cartas
+    const isAtLimit = appState.selectedCards.size >= 3;
+
     gameData.cards.filter(card => card.number !== 4).forEach(card => {
         const cardEl = document.createElement('img');
         cardEl.src = `${ASSETS_PATH}/card_images/${card.number}.jpg`;
         cardEl.alt = card.name;
         cardEl.dataset.tooltip = `${card.name}: ${card.description}`;
-        cardEl.className = 'card rounded-md cursor-pointer w-full h-auto';
+        
+        // Adicionada a classe transition-all para o efeito de cor ser suave
+        cardEl.className = 'card rounded-md cursor-pointer w-full h-auto transition-all duration-300';
         cardEl.dataset.cardId = card.number;
-        if (appState.selectedCards.has(card.number)) {
+        
+        const isSelected = appState.selectedCards.has(card.number);
+
+        if (isSelected) {
             cardEl.classList.add('selected');
+        } else if (isAtLimit) {
+            // SE não está selecionada E o limite foi atingido, aplica o "Dimming"
+            cardEl.classList.add('opacity-40', 'grayscale', 'cursor-not-allowed');
         }
         
         desktopGrid.appendChild(cardEl);
@@ -186,64 +199,105 @@ function validationCallback(resultJson) {
             window.analyze_current_board();
         }
     } else {
-        // If invalid, show the error
-        statsPanel.innerHTML = `<p class="text-red-400 font-bold">Invalid Board:</p><p class="text-red-400">${result.error}</p>`;
+        // If invalid, show the error in normal colors
+        statsPanel.innerHTML = `<p class="text-gray-200 font-bold">Invalid Board:</p><p class="text-gray-400">${result.error}</p>`;
         document.getElementById('selected-cards-stats-title').innerHTML = '';
     }
 }
 window.validationCallback = validationCallback; // Exposing to Python
 
 function updateStatsCallback(statsJson) {
-    const stats = JSON.parse(statsJson); // Convert to a pure JS object
+    const stats = JSON.parse(statsJson);
     const statsPanel = document.getElementById('stats-panel');
     const titleEl = document.getElementById('selected-cards-stats-title');
 
-    if (appState.selectedCards.size > 0) {
-        const cardNames = Array.from(appState.selectedCards).map(id => gameData.cardMap.get(id)?.name || `Card ${id}`);
-        titleEl.innerHTML = `<strong>Objectives:</strong> ${cardNames.join(', ')}`;
-    } else {
-        titleEl.innerHTML = '';
-    }
-    
-    const selectedCardKeys = new Set(Array.from(appState.selectedCards).map(id => gameData.cardMap.get(id)?.key));
-    
-    const allStats = Object.entries(stats);
-    
-    const selectedStats = allStats
-        .filter(([key]) => selectedCardKeys.has(key))
-        .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
-
-    const otherStats = allStats
-        .filter(([key]) => !selectedCardKeys.has(key))
-        .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
-
-    const sortedStats = [...selectedStats, ...otherStats];
-    
+    titleEl.innerHTML = '';
     let html = '';
-    for (const [key, value] of sortedStats) {
-        let percentileText = '';
-        let highlightClass = '';
-        
-        if (selectedCardKeys.has(key)) {
-            highlightClass = 'bg-blue-900/50';
-            const cardData = gameData.cards.find(c => c.key === key);
-            const percentileValue = gameData.percentiles[key]?.[value];
 
-            if (cardData && percentileValue !== undefined) {
-                const score = cardData.type === 'min' ? 100 - percentileValue : percentileValue;
-                percentileText = `<span class="text-blue-400 font-semibold">(Score: ${score.toFixed(1)})</span>`;
+    if (appState.selectedCards.size > 0) {
+        const sortedCardIds = Array.from(appState.selectedCards).sort((a,b)=>a-b);
+        let product = 1;
+        let count = 0;
+        const cardScores = []; 
+        
+        // Passo 1: Calcular os scores individuais e o produto
+        sortedCardIds.forEach(id => {
+            const card = gameData.cardMap.get(id);
+            if (card && card.key && card.type) {
+                const rawValue = stats[card.key];
+                
+                let percentileValue = gameData.percentiles[card.key]?.[rawValue] ?? 0;
+                const isMin = card.type.toLowerCase() === 'min';
+                const score = isMin ? (100.0 - percentileValue) : percentileValue;
+                
+                // Trabalhamos na escala 0.0 a 1.0 para o cálculo da raiz não estourar os limites
+                product *= (score / 100.0);
+                count++;
+                
+                cardScores.push({ card, rawValue, score });
             }
-        }
+        });
+
+        // Passo 2: Calcular a Média Geométrica
+        const geometricMean = count > 0 ? (Math.pow(product, 1 / count) * 100) : 0;
+        
+        // NOVO: Arredondamento forçado para baixo (Floor) com 1 casa decimal
+        const flooredMean = Math.floor(geometricMean * 10) / 10;
+
+        // DESTAQUE: SCORE TOTAL (Com subtítulo sutil)
+        html += `
+            <div class="bg-gradient-to-r from-blue-900/60 to-indigo-900/60 border border-blue-700/50 rounded-lg p-4 mb-5 shadow-md flex justify-between items-center">
+                <div class="flex flex-col">
+                    <span class="text-lg font-bold text-white leading-tight">Total Score</span>
+                    <span class="text-xs text-blue-300/70 font-medium mt-0.5">Geometric Mean</span>
+                </div>
+                <span class="text-3xl font-bold text-blue-300 drop-shadow-md">${flooredMean.toFixed(1)}</span>
+            </div>
+        `;
+
+        // SEÇÃO: SCORES DOS OBJETIVOS INDIVIDUAIS
+        html += `<h3 class="font-bold text-white mb-3 border-b border-gray-700 pb-1">Objective Scores</h3>`;
+        html += `<div class="space-y-2 mb-6">`; 
+        
+        cardScores.forEach(({ card, rawValue, score }) => {
+            // NOVO: Arredondamento forçado para baixo também nos objetivos individuais
+            const flooredScore = Math.floor(score * 10) / 10;
+            
+            html += `
+                <div class="bg-blue-900/40 border border-blue-800/50 rounded p-2 shadow-sm">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-blue-100 font-bold text-sm">${card.name}</span>
+                        <span class="text-blue-400 font-bold text-lg">${flooredScore.toFixed(1)}</span>
+                    </div>
+                    <div class="text-xs text-gray-400 flex justify-between items-center">
+                        <span class="capitalize">${card.key.replace(/_/g, ' ')}</span>
+                        <span class="bg-gray-800 px-2 py-0.5 rounded text-gray-300">Value: ${rawValue}</span>
+                    </div>
+                </div>
+            `;
+        });
+        html += `</div>`;
+    }
+
+    // SEÇÃO: MÉTRICAS GERAIS DO TABULEIRO
+    html += `<h3 class="font-bold text-gray-400 mb-2 border-b border-gray-700 pb-1">Board Metrics</h3>`;
+    html += `<div class="space-y-1">`;
+
+    const allStats = Object.entries(stats).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+
+    for (const [key, value] of allStats) {
+        const isUsed = Array.from(appState.selectedCards).some(id => gameData.cardMap.get(id)?.key === key);
+        const bgColor = isUsed ? 'bg-gray-800' : 'hover:bg-gray-800/50';
+        const textColor = isUsed ? 'text-gray-300 font-semibold' : 'text-gray-500';
 
         html += `
-            <div class="flex justify-between items-center py-1 px-2 rounded ${highlightClass}">
-                <span class="text-gray-400 capitalize">${key.replace(/_/g, ' ')}:</span>
-                <div>
-                    <span class="font-bold stat-value text-base">${value}</span>
-                    ${percentileText}
-                </div>
+            <div class="flex justify-between items-center py-1 px-2 rounded ${bgColor} transition-colors">
+                <span class="${textColor} capitalize text-xs">${key.replace(/_/g, ' ')}:</span>
+                <span class="font-mono text-gray-400 text-sm">${value}</span>
             </div>`;
     }
+    html += `</div>`;
+
     statsPanel.innerHTML = html;
 }
 window.updateStatsCallback = updateStatsCallback; // Exposing to Python
@@ -255,6 +309,7 @@ window.updateStatsCallback = updateStatsCallback; // Exposing to Python
 function handleBoardClick(e) {
     const rotateBtn = e.target.closest('.rotate-btn');
     if (rotateBtn) {
+        hideParetoNav();
         const index = parseInt(rotateBtn.dataset.index);
         const tileOnBoard = appState.board[index];
         if (tileOnBoard) {
@@ -267,6 +322,7 @@ function handleBoardClick(e) {
 
     const cell = e.target.closest('.tile');
     if (!cell) return;
+    hideParetoNav();
     
     const index = parseInt(cell.dataset.index);
     const tileOnBoard = appState.board[index];
@@ -335,6 +391,7 @@ function handlePaletteClick(e) {
 function handleBoardDoubleClick(e) {
     const cell = e.target.closest('.tile');
     if (!cell) return;
+    hideParetoNav();
     
     const index = parseInt(cell.dataset.index);
     if (appState.board[index]) {
@@ -350,6 +407,7 @@ function handleBoardRightClick(e) {
     e.preventDefault();
     const cell = e.target.closest('.tile');
     if (!cell) return;
+    hideParetoNav();
     const index = parseInt(cell.dataset.index);
     const tile = appState.board[index];
     if (tile) {
@@ -373,34 +431,105 @@ function handleCardClick(e) {
         }
     }
     document.getElementById('optimal-solution-btn').disabled = appState.selectedCards.size === 0;
+    hideParetoNav();
     renderCardSelection();
     updateStats();
+}
+
+function hideParetoNav() {
+    document.getElementById('pareto-nav').classList.add('hidden');
+    appState.currentParetoSolutions = [];
 }
 
 function showOptimalSolution() {
     if (appState.selectedCards.size === 0) return;
     
-    const sortedCardIds = Array.from(appState.selectedCards).sort((a,b)=>a-b);
+    // Pega as cartas selecionadas em ordem crescente (a mesma ordem usada no Python)
+    const sortedCardIds = Array.from(appState.selectedCards).sort((a, b) => a - b);
     const solutionKey = sortedCardIds.join('_');
-    const optimalSolution = gameData.solutions[solutionKey];
+    const paretoSolutions = gameData.paretoFront[solutionKey];
     
-    if (optimalSolution) {
-        const newBoardState = [];
-        for (let r = 0; r < 3; r++) {
-            for (let c = 0; c < 3; c++) {
-                newBoardState.push([...optimalSolution[`p${r}${c}`]]);
+    if (paretoSolutions && paretoSolutions.length > 0) {
+        
+        // Pega os dados das cartas para saber a chave e o tipo (max/min)
+        const selectedCardsData = sortedCardIds.map(id => gameData.cardMap.get(id));
+
+        // Ordena o array da Fronteira de Pareto com base no maior produto dos PERCENTIS
+        const sortedSolutions = [...paretoSolutions].sort((a, b) => {
+            let prodA = 1;
+            let prodB = 1;
+
+            for (let i = 0; i < selectedCardsData.length; i++) {
+                const card = selectedCardsData[i];
+                const rawValA = a.scores[i];
+                const rawValB = b.scores[i];
+
+                // Busca o percentil correspondente; se não achar, assume 0
+                let percA = gameData.percentiles[card.key]?.[rawValA] ?? 0;
+                let percB = gameData.percentiles[card.key]?.[rawValB] ?? 0;
+
+                // Inverte se for carta de minimizar
+                if (card.type === 'min') {
+                    percA = 100 - percA;
+                    percB = 100 - percB;
+                }
+
+                prodA *= percA;
+                prodB *= percB;
             }
-        }
-        appState.board = newBoardState;
-        renderBoard();
-        renderAvailableTiles();
-        updateStats();
+
+            return prodB - prodA; // Ordem decrescente
+        });
+
+        appState.currentParetoSolutions = sortedSolutions;
+        appState.currentParetoIndex = 0; // Começa pelo maior produto
+        
+        document.getElementById('pareto-nav').classList.remove('hidden');
+        loadParetoBoard(0);
     } else {
-        alert("Optimal solution not found for this combination of cards.");
+        alert("Pareto Front solutions not found for this combination of cards.");
+        hideParetoNav();
+    }
+}
+
+function loadParetoBoard(index) {
+    const solutionObj = appState.currentParetoSolutions[index];
+    if (!solutionObj) return;
+
+    // O duckdb já salva a matrix plana em `board`, é só mapear para o appState
+    appState.board = solutionObj.board.map(tile => [...tile]);
+    
+    renderBoard();
+    renderAvailableTiles();
+    updateStats();
+    updateParetoNavUI();
+}
+
+function updateParetoNavUI() {
+    const total = appState.currentParetoSolutions.length;
+    const current = appState.currentParetoIndex + 1; // Para exibir começando de 1
+    
+    document.getElementById('pareto-indicator').innerText = `${current} / ${total}`;
+    document.getElementById('pareto-prev-btn').disabled = (current <= 1);
+    document.getElementById('pareto-next-btn').disabled = (current >= total);
+}
+
+function handleParetoPrev() {
+    if (appState.currentParetoIndex > 0) {
+        appState.currentParetoIndex--;
+        loadParetoBoard(appState.currentParetoIndex);
+    }
+}
+
+function handleParetoNext() {
+    if (appState.currentParetoIndex < appState.currentParetoSolutions.length - 1) {
+        appState.currentParetoIndex++;
+        loadParetoBoard(appState.currentParetoIndex);
     }
 }
 
 function resetBoard() {
+    hideParetoNav();
     appState.board.fill(null);
     appState.selectedTile = null;
     appState.firstSelectedTileIndex = null;
@@ -428,6 +557,7 @@ function handleCardMouseMove(e) {
 function handleTouchStart(e) {
     const cell = e.target.closest('.tile');
     if (!cell || !appState.board[cell.dataset.index]) return;
+    hideParetoNav();
     
     appState.longPressTimer = setTimeout(() => {
         const index = parseInt(cell.dataset.index);
@@ -469,6 +599,25 @@ function attachEventListeners() {
     document.getElementById('optimal-solution-btn').addEventListener('click', showOptimalSolution);
     document.getElementById('reset-board-btn').addEventListener('click', resetBoard);
     document.getElementById('optimal-solution-btn').disabled = true;
+    document.getElementById('pareto-prev-btn').addEventListener('click', handleParetoPrev);
+    document.getElementById('pareto-next-btn').addEventListener('click', handleParetoNext);
+
+    // Modal Events
+    const helpBtn = document.getElementById('help-btn');
+    const closeHelpBtn = document.getElementById('close-help-btn');
+    const helpModal = document.getElementById('help-modal');
+
+    if (helpBtn && closeHelpBtn && helpModal) {
+        helpBtn.addEventListener('click', () => helpModal.classList.remove('hidden'));
+        closeHelpBtn.addEventListener('click', () => helpModal.classList.add('hidden'));
+        
+        // Fecha o modal ao clicar fora da caixa preta
+        helpModal.addEventListener('click', (e) => {
+            if (e.target === helpModal) {
+                helpModal.classList.add('hidden');
+            }
+        });
+    }
 }
 
 // =============================================================================

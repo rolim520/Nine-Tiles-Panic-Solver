@@ -491,7 +491,7 @@ def _get_tile_connections(tile_data, orientation):
 def is_board_valid(board, game_tiles):
     # Checa se o tabuleiro está completamente preenchido
     if any(tile is None or tile[0] == -1 for tile in board):
-        return {'isValid': False, 'error': 'O tabuleiro não está completo.'}
+        return {'isValid': False, 'error': 'The board is not completely filled.'}
 
     # Checa conexões horizontais
     for r in range(3):
@@ -503,7 +503,7 @@ def is_board_valid(board, game_tiles):
             tile1_conns = _get_tile_connections(game_tiles[tile1_data[0]][tile1_data[1]], tile1_data[2])
             tile2_conns = _get_tile_connections(game_tiles[tile2_data[0]][tile2_data[1]], tile2_data[2])
             if tile1_conns[EAST] != tile2_conns[WEST]: 
-                return {'isValid': False, 'error': f'Peças nas posições {pos1} e {pos2} não conectam.'}
+                return {'isValid': False, 'error': f'Tiles at positions {pos1} and {pos2} do not connect properly.'}
     
     # Checa conexões verticais
     for r in range(2):
@@ -515,7 +515,7 @@ def is_board_valid(board, game_tiles):
             tile1_conns = _get_tile_connections(game_tiles[tile1_data[0]][tile1_data[1]], tile1_data[2])
             tile2_conns = _get_tile_connections(game_tiles[tile2_data[0]][tile2_data[1]], tile2_data[2])
             if tile1_conns[SOUTH] != tile2_conns[NORTH]: 
-                return {'isValid': False, 'error': f'Peças nas posições {pos1} e {pos2} não conectam.'}
+                return {'isValid': False, 'error': f'Tiles at positions {pos1} and {pos2} do not connect properly.'}
             
     # Checa por ciclos
     uf = UnionFind(24)
@@ -528,6 +528,6 @@ def is_board_valid(board, game_tiles):
                 g1 = TILE_NODES[position][(c1 + orientation) % 4]
                 g2 = TILE_NODES[position][(c2 + orientation) % 4]
                 if uf.union(g1, g2):
-                    return {'isValid': False, 'error': 'Ciclo detectado na rede de estradas.'}
+                    return {'isValid': False, 'error': 'A loop was detected in the road network.'}
 
     return {'isValid': True, 'error': None}
