@@ -87,7 +87,7 @@ function renderBoard() {
             const [piece, side, orientation] = tile;
             const tileBg = document.createElement('div');
             tileBg.className = 'tile-bg';
-            tileBg.style.backgroundImage = `url('${ASSETS_PATH}/tile_images/${side}_${piece}.png')`;
+            tileBg.style.backgroundImage = `url('${ASSETS_PATH}/tile_images/${side}_${piece}.webp')`;
             tileBg.style.transform = `rotate(${orientation * 90}deg)`;
             cell.appendChild(tileBg);
 
@@ -167,7 +167,7 @@ function renderAvailableTiles() {
             tileEl.className = 'palette-tile';
             tileEl.dataset.pieceId = i;
             tileEl.dataset.side = side;
-            tileEl.style.backgroundImage = `url('${ASSETS_PATH}/tile_images/${side}_${i}.png')`;
+            tileEl.style.backgroundImage = `url('${ASSETS_PATH}/tile_images/${side}_${i}.webp')`;
             tileEl.style.gridColumn = i + 1;
             tileEl.style.gridRow = side + 1;
             if (isUsed) {
