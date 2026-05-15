@@ -118,26 +118,40 @@ function renderCardSelection() {
     const isAtLimit = appState.selectedCards.size >= 3;
 
     gameData.cards.filter(card => card.number !== 4).forEach(card => {
-        const cardEl = document.createElement('img');
-        cardEl.src = `${ASSETS_PATH}/card_images/${card.number}.jpg`;
-        cardEl.alt = card.name;
+        // Cria uma div ao invés de uma tag img
+        const cardEl = document.createElement('div');
         cardEl.dataset.tooltip = `${card.name}: ${card.description}`;
-        
-        // Adicionada a classe transition-all para o efeito de cor ser suave
-        cardEl.className = 'card rounded-md cursor-pointer w-full h-auto transition-all duration-300';
         cardEl.dataset.cardId = card.number;
+        
+        // Classes base usando Tailwind para criar a aparência de item de lista
+        cardEl.className = 'card bg-gray-800 border-gray-700 rounded-lg p-2 cursor-pointer transition-all duration-200 hover:bg-gray-700 flex items-center space-x-3 w-full';
+        
+        // Estrutura interna: Círculo com o número e texto com o nome
+        cardEl.innerHTML = `
+            <span class="flex items-center justify-center bg-gray-900 text-blue-400 rounded-full w-8 h-8 font-bold text-sm shrink-0 border border-gray-700">
+                ${card.number}
+            </span>
+            <span class="font-medium text-gray-200 text-sm leading-tight select-none">
+                ${card.name}
+            </span>
+        `;
         
         const isSelected = appState.selectedCards.has(card.number);
 
         if (isSelected) {
+            // Se estiver selecionado, a classe .card.selected do CSS fará o destaque
             cardEl.classList.add('selected');
         } else if (isAtLimit) {
             // SE não está selecionada E o limite foi atingido, aplica o "Dimming"
-            cardEl.classList.add('opacity-40', 'grayscale', 'cursor-not-allowed');
+            cardEl.classList.add('opacity-40', 'cursor-not-allowed');
+            cardEl.classList.remove('hover:bg-gray-700'); // Remove o hover se estiver desabilitado
         }
         
         desktopGrid.appendChild(cardEl);
-        mobileGrid.appendChild(cardEl.cloneNode(true));
+        
+        // Clona para a visualização mobile
+        const mobileClone = cardEl.cloneNode(true);
+        mobileGrid.appendChild(mobileClone);
     });
 }
 
