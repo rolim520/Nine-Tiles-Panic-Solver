@@ -99,7 +99,9 @@ def solve_for_task(task_config):
         'start_time': task_start_time,
         'end_time': task_end_time,
         'duration': task_duration,
-        'solutions_found': writer.total_solutions_found
+        'solutions_found': writer.total_solutions_found,
+        'piece': task_config['piece'],
+        'side': task_config['side'],
     }
 
 def main():
@@ -188,6 +190,8 @@ def main():
 
             tasks.append({
                 'id': task_id_counter,
+                'piece': piece,
+                'side': side,
                 'board_state': board_state,
                 'domains': domains,
                 'node_states': node_states,
@@ -234,7 +238,9 @@ def main():
             "Task": r['worker_id'],
             "Core_PID": r['pid'],
             "Start": relative_start,
-            "Duration": r['duration']
+            "Duration": r['duration'],
+            "Piece": r['piece'],
+            "Side": r['side'], 
         })
 
     os.makedirs("results", exist_ok=True)
