@@ -1,0 +1,340 @@
+{
+    "metadata": {
+        "simulations": 100000
+    },
+    "individual_tests": {
+        "soma": {
+            "vs_random": {
+                "players_2": {
+                    "finish_first": {
+                        "wins": 99901,
+                        "ties": 0,
+                        "losses": 99
+                    },
+                    "finish_last": {
+                        "wins": 96188,
+                        "ties": 0,
+                        "losses": 3812
+                    }
+                },
+                "players_3": {
+                    "finish_first": {
+                        "wins": 99360,
+                        "ties": 573,
+                        "losses": 67
+                    },
+                    "finish_last": {
+                        "wins": 89837,
+                        "ties": 5685,
+                        "losses": 4478
+                    }
+                },
+                "players_4": {
+                    "finish_first": {
+                        "wins": 99346,
+                        "ties": 509,
+                        "losses": 145
+                    },
+                    "finish_last": {
+                        "wins": 87138,
+                        "ties": 6264,
+                        "losses": 6598
+                    }
+                },
+                "players_5": {
+                    "finish_first": {
+                        "wins": 99362,
+                        "ties": 462,
+                        "losses": 176
+                    },
+                    "finish_last": {
+                        "wins": 85467,
+                        "ties": 6225,
+                        "losses": 8308
+                    }
+                }
+            },
+            "vs_greedy": {
+                "players_2": {
+                    "finish_first": {
+                        "wins": 97508,
+                        "ties": 0,
+                        "losses": 2492
+                    },
+                    "finish_last": {
+                        "wins": 78237,
+                        "ties": 0,
+                        "losses": 21763
+                    }
+                },
+                "players_3": {
+                    "finish_first": {
+                        "wins": 80225,
+                        "ties": 16458,
+                        "losses": 3317
+                    },
+                    "finish_last": {
+                        "wins": 49552,
+                        "ties": 21134,
+                        "losses": 29314
+                    }
+                },
+                "players_4": {
+                    "finish_first": {
+                        "wins": 74099,
+                        "ties": 17936,
+                        "losses": 7965
+                    },
+                    "finish_last": {
+                        "wins": 35140,
+                        "ties": 24320,
+                        "losses": 40540
+                    }
+                },
+                "players_5": {
+                    "finish_first": {
+                        "wins": 66801,
+                        "ties": 21355,
+                        "losses": 11844
+                    },
+                    "finish_last": {
+                        "wins": 24714,
+                        "ties": 25290,
+                        "losses": 49996
+                    }
+                }
+            }
+        },
+        "produto": {
+            "vs_random": {
+                "players_2": {
+                    "finish_first": {
+                        "wins": 99894,
+                        "ties": 0,
+                        "losses": 106
+                    },
+                    "finish_last": {
+                        "wins": 96147,
+                        "ties": 0,
+                        "losses": 3853
+                    }
+                },
+                "players_3": {
+                    "finish_first": {
+                        "wins": 99327,
+                        "ties": 612,
+                        "losses": 61
+                    },
+                    "finish_last": {
+                        "wins": 89741,
+                        "ties": 5725,
+                        "losses": 4534
+                    }
+                },
+                "players_4": {
+                    "finish_first": {
+                        "wins": 99361,
+                        "ties": 468,
+                        "losses": 171
+                    },
+                    "finish_last": {
+                        "wins": 87131,
+                        "ties": 6146,
+                        "losses": 6723
+                    }
+                },
+                "players_5": {
+                    "finish_first": {
+                        "wins": 99323,
+                        "ties": 485,
+                        "losses": 192
+                    },
+                    "finish_last": {
+                        "wins": 85462,
+                        "ties": 6085,
+                        "losses": 8453
+                    }
+                }
+            },
+            "vs_greedy": {
+                "players_2": {
+                    "finish_first": {
+                        "wins": 97422,
+                        "ties": 0,
+                        "losses": 2578
+                    },
+                    "finish_last": {
+                        "wins": 78227,
+                        "ties": 0,
+                        "losses": 21773
+                    }
+                },
+                "players_3": {
+                    "finish_first": {
+                        "wins": 80196,
+                        "ties": 16350,
+                        "losses": 3454
+                    },
+                    "finish_last": {
+                        "wins": 49520,
+                        "ties": 21155,
+                        "losses": 29325
+                    }
+                },
+                "players_4": {
+                    "finish_first": {
+                        "wins": 73934,
+                        "ties": 17812,
+                        "losses": 8254
+                    },
+                    "finish_last": {
+                        "wins": 35073,
+                        "ties": 24254,
+                        "losses": 40673
+                    }
+                },
+                "players_5": {
+                    "finish_first": {
+                        "wins": 66936,
+                        "ties": 21093,
+                        "losses": 11971
+                    },
+                    "finish_last": {
+                        "wins": 24686,
+                        "ties": 25358,
+                        "losses": 49956
+                    }
+                }
+            }
+        },
+        "minimo": {
+            "vs_random": {
+                "players_2": {
+                    "finish_first": {
+                        "wins": 99705,
+                        "ties": 0,
+                        "losses": 295
+                    },
+                    "finish_last": {
+                        "wins": 94617,
+                        "ties": 0,
+                        "losses": 5383
+                    }
+                },
+                "players_3": {
+                    "finish_first": {
+                        "wins": 98984,
+                        "ties": 780,
+                        "losses": 236
+                    },
+                    "finish_last": {
+                        "wins": 87284,
+                        "ties": 6366,
+                        "losses": 6350
+                    }
+                },
+                "players_4": {
+                    "finish_first": {
+                        "wins": 98986,
+                        "ties": 624,
+                        "losses": 390
+                    },
+                    "finish_last": {
+                        "wins": 84532,
+                        "ties": 6522,
+                        "losses": 8946
+                    }
+                },
+                "players_5": {
+                    "finish_first": {
+                        "wins": 98940,
+                        "ties": 627,
+                        "losses": 433
+                    },
+                    "finish_last": {
+                        "wins": 82672,
+                        "ties": 6316,
+                        "losses": 11012
+                    }
+                }
+            },
+            "vs_greedy": {
+                "players_2": {
+                    "finish_first": {
+                        "wins": 96257,
+                        "ties": 0,
+                        "losses": 3743
+                    },
+                    "finish_last": {
+                        "wins": 75659,
+                        "ties": 0,
+                        "losses": 24341
+                    }
+                },
+                "players_3": {
+                    "finish_first": {
+                        "wins": 77706,
+                        "ties": 17208,
+                        "losses": 5086
+                    },
+                    "finish_last": {
+                        "wins": 46964,
+                        "ties": 21004,
+                        "losses": 32032
+                    }
+                },
+                "players_4": {
+                    "finish_first": {
+                        "wins": 70313,
+                        "ties": 19387,
+                        "losses": 10300
+                    },
+                    "finish_last": {
+                        "wins": 33111,
+                        "ties": 23548,
+                        "losses": 43341
+                    }
+                },
+                "players_5": {
+                    "finish_first": {
+                        "wins": 62313,
+                        "ties": 22920,
+                        "losses": 14767
+                    },
+                    "finish_last": {
+                        "wins": 23075,
+                        "ties": 24259,
+                        "losses": 52666
+                    }
+                }
+            }
+        }
+    },
+    "group_test": {
+        "soma": {
+            "wins": 33668,
+            "ties": 3135,
+            "losses": 63197
+        },
+        "produto": {
+            "wins": 34103,
+            "ties": 3046,
+            "losses": 62851
+        },
+        "minimo": {
+            "wins": 25323,
+            "ties": 5573,
+            "losses": 69104
+        },
+        "guloso": {
+            "wins": 663,
+            "ties": 723,
+            "losses": 98614
+        },
+        "random": {
+            "wins": 74,
+            "ties": 126,
+            "losses": 99800
+        }
+    }
+}

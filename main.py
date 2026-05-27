@@ -237,7 +237,9 @@ def main():
             "Duration": r['duration']
         })
 
-    with open("gantt_chart_data.json", "w") as f:
+    os.makedirs("results", exist_ok=True)
+    
+    with open("results/gantt_chart_data.json", "w") as f:
         json.dump(chart_data, f, indent=4)
 
     print("\n-------------------------------------------")

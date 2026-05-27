@@ -1,7 +1,12 @@
 .vscode
 __pycache__
+venv/
+
 generated_solutions
 temp_solutions
+temp_duckdb
 databases
 temp
-venv/
+
+scripts/misc/
+images/tabuleiros_equivalentes/
