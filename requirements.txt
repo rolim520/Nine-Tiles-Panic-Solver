@@ -2,3 +2,5 @@ pandas
 pyarrow
 duckdb
 numpy
+matplotlib
+Pillow
