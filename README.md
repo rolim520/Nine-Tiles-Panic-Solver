@@ -105,3 +105,5 @@ Nine-Tiles-Panic-Solver/
 ## Acknowledgments
 
 Special thanks to **Jean-Claude Pellin**, **Jens Merkl**, and **Oink Games** for designing and publishing *Nine Tiles Panic*. This project is purely an academic tribute to their excellent and challenging game design. All intellectual property regarding the game belongs to its respective creators and publishers.
+
+UI and board icons were created by **[Freepik](https://www.freepik.com)** from **[Flaticon](https://www.flaticon.com/)**.
