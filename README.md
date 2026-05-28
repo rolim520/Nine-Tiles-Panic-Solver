@@ -93,7 +93,8 @@ Nine-Tiles-Panic-Solver/
 ├── results/              # Aggregated analytical outputs (Gantt, Monte Carlo results)
 ├── scripts/              
 │   ├── analytics/        # DuckDB data pipelines (Percentiles, Pareto, Monte Carlo)
-│   └── plots/            # Matplotlib plotting scripts for thesis figures
+│   ├── plots/            # Matplotlib plotting scripts for thesis figures
+│   └── misc/             # Minor verification scripts
 ├── main.py               # CSP generation engine entry point
 ├── solver.py             # Backtracking algorithm implementation
 ├── analysis.py           # Board statistics and graph analysis functions
