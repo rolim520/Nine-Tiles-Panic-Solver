@@ -32,7 +32,7 @@ The physical rules of the game are modeled as a **Constraint Satisfaction Proble
 The engine's output is serialized into highly compressed Apache Parquet files. The analytics pipeline (`scripts/analytics/`) processes this massive dataset out-of-core using **DuckDB**:
 * **Percentile Normalization:** Standardizes 24 different board metrics into a uniform probability scale.
 * **Pareto Frontier Extraction:** Filters out mathematically inferior boards across all 2,625 possible combinations of scoring objectives.
-* **Monte Carlo Simulation:** Simulates 100,000 matches to validate scalarization strategies, proving that a **Weighted Product** heuristic provides the highest win rate against greedy and random opponents.
+* **Monte Carlo Simulation:** Simulates 100,000 matches to evaluate scalarization strategies. Results show that both **Weighted Product** and **Weighted Sum** perform with statistical equivalence, sharing the highest win rates. The Weighted Product is ultimately adopted as the core decision heuristic due to its non-compensatory game design properties, punishing asymmetrical boards and ensuring strategically balanced layouts.
 
 ---
 

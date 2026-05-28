@@ -10,14 +10,9 @@ print("📊 Lendo dados de execução...")
 with open('results/gantt_chart_data.json', 'r') as f:
     data = json.load(f)
 
-task_mapping = {
-    0: (4, 0), 1: (5, 1), 2: (3, 0), 3: (2, 1), 4: (0, 1), 5: (6, 0),
-    6: (1, 0), 7: (8, 1), 8: (1, 1), 9: (0, 0), 10: (3, 1), 11: (5, 0),
-    12: (2, 0), 13: (7, 1), 14: (7, 0), 15: (4, 1), 16: (8, 0), 17: (6, 1)
-}
-
 data = sorted(data, key=lambda x: x["Duration"], reverse=True)
-ordered_tasks = [task_mapping[d["Task"]] for d in data]
+
+ordered_tasks = [(d["Piece"], d["Side"]) for d in data]
 tempos_horas = [d["Duration"] / 3600 for d in data]
 
 print("🎨 Gerando o gráfico...")
