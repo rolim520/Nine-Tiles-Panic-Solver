@@ -7,10 +7,37 @@
     <link rel="icon" href="assets/tile_images/0_0.webp" type="image/webp" sizes="any">
     <link rel="apple-touch-icon" href="assets/tile_images/0_0.webp">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' };
+    </script>
+    <script>
+        (function() {
+            if (localStorage.getItem('theme') === 'light') {
+                document.documentElement.classList.remove('dark');
+            }
+        })();
+    </script>
     <style>
         :root {
             --gap: 8px;
             --palette-tile-size: 70px;
+            --tooltip-bg: #ffffff;
+            --tooltip-text: #374151;
+            --tooltip-border: #d1d5db;
+            --scrollbar-thumb: #d1d5db;
+            --scrollbar-thumb-hover: #9ca3af;
+            --card-selected-bg: rgba(59, 130, 246, 0.1);
+        }
+        html.dark {
+            --tooltip-bg: #1f2937;
+            --tooltip-text: #d1d5db;
+            --tooltip-border: #4b5563;
+            --scrollbar-thumb: #4b5563;
+            --scrollbar-thumb-hover: #6b7280;
+            --card-selected-bg: rgba(59, 130, 246, 0.45);
+        }
+        html.dark .card.selected {
+            box-shadow: 0 0 14px rgba(59, 130, 246, 0.65);
         }
         @media (max-width: 1200px) {
             :root { --palette-tile-size: 60px; }
@@ -34,31 +61,36 @@
         }
         .tile { 
             width: 100%; 
-            aspect-ratio: 1 / 1; /* Garante que a peça seja sempre um quadrado perfeito */
-            background-size: cover; 
+            aspect-ratio: 1 / 1;
+            background-size: cover;
             cursor: pointer; 
             position: relative;
-            border-radius: 0.375rem;
             transition: transform 0.2s, box-shadow 0.2s;
         }
         .tile-bg {
             width: 100%;
             height: 100%;
             background-size: cover;
+            background-repeat: no-repeat;
+            background-position: center;
             transition: transform 0.2s;
-            border-radius: 0.375rem;
         }
         .tile:hover { z-index: 10; }
         .tile.selected-for-swap {
-            box-shadow: 0 0 20px #f59e0b; /* amber-400 */
+            box-shadow: 0 0 20px #f59e0b;
             border: 2px solid #f59e0b;
         }
         
         .card { transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s; border: 2px solid transparent; }
-        .card.selected { border-color: #3b82f6; background-color: rgba(59, 130, 246, 0.2); box-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+        .card.selected { 
+            border-color: #3b82f6 !important; 
+            background-color: var(--card-selected-bg); 
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5); 
+        }
         
-        .available-tiles-scroller { overflow-x: auto; padding: 0.5rem; border-radius: 0.5rem; max-width: 100%; }        .available-tiles-grid { display: inline-grid; grid-template-columns: repeat(9, var(--palette-tile-size)); grid-template-rows: repeat(2, var(--palette-tile-size)); gap: var(--gap); }
-        .palette-tile { width: var(--palette-tile-size); height: var(--palette-tile-size); background-size: cover; border-radius: 0.375rem; flex-shrink: 0; cursor: pointer; border: 3px solid transparent; transition: border-color 0.2s, transform 0.2s, filter 0.3s, opacity 0.3s; }
+        .available-tiles-scroller { overflow-x: auto; padding: 0.5rem; border-radius: 0.5rem; max-width: 100%; }
+        .available-tiles-grid { display: inline-grid; grid-template-columns: repeat(9, var(--palette-tile-size)); grid-template-rows: repeat(2, var(--palette-tile-size)); gap: var(--gap); }
+        .palette-tile { width: var(--palette-tile-size); height: var(--palette-tile-size); background-size: cover; background-repeat: no-repeat; background-position: center; border-radius: 0; flex-shrink: 0; cursor: pointer; border: 3px solid transparent; transition: border-color 0.2s, transform 0.2s, filter 0.3s, opacity 0.3s; }
         .palette-tile:hover { transform: scale(1.08); }
         .palette-tile.selected { border-color: #3b82f6; box-shadow: 0 0 15px #3b82f6; transform: scale(1.08); }
         .palette-tile.used { filter: grayscale(100%); opacity: 0.5; cursor: not-allowed; }
@@ -69,7 +101,7 @@
         .cards-container-mobile { max-height: 40vh; overflow-y: auto; }
 
         #card-tooltip {
-            display: none; position: fixed; z-index: 100; background-color: #1f2937; color: #d1d5db; border: 1px solid #4b5563; border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; max-width: 250px; pointer-events: none;
+            display: none; position: fixed; z-index: 100; background-color: var(--tooltip-bg); color: var(--tooltip-text); border: 1px solid var(--tooltip-border); border-radius: 0.375rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; max-width: 250px; pointer-events: none;
         }
 
         .rotate-btn {
@@ -91,49 +123,51 @@
             opacity: 1;
         }
 
-        /* Custom Scrollbar para os painéis parecerem de App nativo */
         ::-webkit-scrollbar {
             width: 8px;
-            height: 8px; /* Para a rolagem horizontal da paleta */
+            height: 8px;
         }
         ::-webkit-scrollbar-track {
             background: transparent;
         }
         ::-webkit-scrollbar-thumb {
-            background-color: #4b5563; /* cor gray-600 do Tailwind */
+            background-color: var(--scrollbar-thumb);
             border-radius: 10px;
         }
         ::-webkit-scrollbar-thumb:hover {
-            background-color: #6b7280; /* cor gray-500 do Tailwind */
+            background-color: var(--scrollbar-thumb-hover);
         }
-        /* Para o Firefox */
         * {
             scrollbar-width: thin;
-            scrollbar-color: #4b5563 transparent;
+            scrollbar-color: var(--scrollbar-thumb) transparent;
         }
     </style>
 </head>
-<body onload="brython()" class="bg-gray-900 text-gray-200 font-sans antialiased lg:overflow-hidden overflow-y-auto">
+<body onload="brython()" class="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 font-sans antialiased lg:overflow-hidden overflow-y-auto">
 
     <!-- Loading Overlay -->
-    <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50">
+    <div id="loading-overlay" class="fixed inset-0 bg-white dark:bg-gray-900 bg-opacity-80 flex items-center justify-center z-50">
         <div class="text-center">
             <svg class="animate-spin h-10 w-10 text-blue-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
             <p id="loading-text" class="mt-4 text-lg">Loading game data...</p>
         </div>
     </div>
 
-    <!-- Header com Título e Botões do GitHub / Ajuda -->
-    <header class="container mx-auto p-4 flex justify-between items-center border-b border-gray-800 mb-2">
+    <!-- Header -->
+    <header class="container mx-auto p-4 flex justify-between items-center border-b border-gray-200 dark:border-gray-800 mb-2">
         <h1 class="text-2xl font-bold flex items-center space-x-3">
             <img src="assets/tile_images/0_0.webp" class="w-8 h-8 rounded" alt="Logo">
             <span>Nine Tiles Panic Solver</span>
         </h1>
         <div class="flex items-center space-x-4">
-            <button id="help-btn" class="text-gray-400 hover:text-white transition" title="How to play">
+            <button id="help-btn" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition" title="How to play">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             </button>
-            <a href="https://github.com/rolim520/Nine-Tiles-Panic-Solver" target="_blank" class="flex items-center space-x-2 bg-gray-800 hover:bg-gray-700 text-white py-1 px-3 rounded-lg transition border border-gray-600">
+            <button id="theme-toggle-btn" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition" title="Toggle theme">
+                <svg id="theme-toggle-icon-sun" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                <svg id="theme-toggle-icon-moon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            </button>
+            <a href="https://github.com/rolim520/Nine-Tiles-Panic-Solver" target="_blank" class="flex items-center space-x-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white py-1 px-3 rounded-lg transition border border-gray-300 dark:border-gray-600">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"></path></svg>
                 <span class="font-semibold text-sm">Star on GitHub</span>
             </a>
@@ -141,10 +175,11 @@
     </header>
 
     <main class="w-[98%] max-w-[1600px] mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:h-[calc(100vh-73px)]">
-        <aside class="lg:col-span-3 bg-gray-800 p-4 rounded-lg shadow-lg order-1 flex flex-col lg:h-full overflow-hidden">            <h2 class="text-xl font-bold mb-4 border-b border-gray-700 pb-2 flex-shrink-0">Game Objectives</h2>
+        <aside class="lg:col-span-3 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg order-1 flex flex-col lg:h-full overflow-hidden">
+            <h2 class="text-xl font-bold mb-4 border-b border-gray-200 dark:border-gray-700 pb-2 flex-shrink-0">Game Objectives</h2>
             
             <div class="cards-container-desktop hidden lg:block flex-grow overflow-y-auto px-2 pb-4">
-                <p class="text-sm text-gray-400 mb-4">Select 1 to 3 cards.</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">Select 1 to 3 cards.</p>
                 <div id="card-selection-grid-desktop" class="flex flex-col space-y-2 p-2"></div>
             </div>
             
@@ -166,57 +201,58 @@
                 <div class="flex space-x-4">
                     <button id="optimal-solution-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
                        Optimal Solutions
-                   </button>
-                   <button id="reset-board-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition">
-                       Clear Board
-                   </button>
+                    </button>
+                    <button id="reset-board-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition">
+                        Clear Board
+                    </button>
                 </div>
-               
+                
                 <div id="pareto-nav" class="flex items-center justify-center space-x-4 hidden w-full">
-                    <button id="pareto-prev-btn" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">&lt; Prev</button>
-                    <span id="pareto-indicator" class="text-sm font-semibold text-gray-300 w-16 text-center">1 / 1</span>
-                    <button id="pareto-next-btn" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">Next &gt;</button>
+                    <button id="pareto-prev-btn" class="bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">&lt; Prev</button>
+                    <span id="pareto-indicator" class="text-sm font-semibold text-gray-700 dark:text-gray-300 w-16 text-center">1 / 1</span>
+                    <button id="pareto-next-btn" class="bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-bold py-1 px-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">Next &gt;</button>
                 </div>
-           </div>
+            </div>
         </section>
 
-    <aside class="lg:col-span-3 bg-gray-800 p-4 rounded-lg shadow-lg order-3 flex flex-col lg:h-full overflow-hidden">            <div id="selected-cards-stats-title" class="mb-2 text-sm flex-shrink-0"></div>
+        <aside class="lg:col-span-3 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg order-3 flex flex-col lg:h-full overflow-hidden">
+            <div id="selected-cards-stats-title" class="mb-2 text-sm flex-shrink-0"></div>
             <div id="stats-panel" class="space-y-1 text-sm overflow-y-auto pr-2 flex-grow">
-                <p class="text-gray-500">Build a board to see the statistics.</p>
+                <p class="text-gray-500 dark:text-gray-400">Build a board to see the statistics.</p>
             </div>
         </aside>
     </main>
     
     <!-- Help Modal -->
     <div id="help-modal" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden">
-        <div class="bg-gray-800 rounded-lg p-6 max-w-md w-full border border-gray-700 relative">
-            <button id="close-help-btn" class="absolute top-3 right-3 text-gray-400 hover:text-white">
+        <div class="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full border border-gray-200 dark:border-gray-700 relative">
+            <button id="close-help-btn" class="absolute top-3 right-3 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
-            <h3 class="text-xl font-bold mb-4">How to Play</h3>
-            <div class="space-y-4 text-gray-300 text-sm">
+            <h3 class="text-xl font-bold mb-4 text-gray-900 dark:text-white">How to Play</h3>
+            <div class="space-y-4 text-gray-700 dark:text-gray-300 text-sm">
                 <div>
-                    <strong class="text-white block mb-1">💻 Desktop (PC)</strong>
+                    <strong class="text-gray-900 dark:text-white block mb-1">💻 Desktop (PC)</strong>
                     <ul class="list-disc pl-5 space-y-1">
                         <li>Select a tile above and click on an empty space to place it.</li>
                         <li>Click on a tile on the board to swap it.</li>
-                        <li>Hover and click the arrow to <span class="text-white font-medium">rotate</span>.</li>
-                        <li>Right-click to <span class="text-white font-medium">flip</span>.</li>
-                        <li>Double-click to <span class="text-white font-medium">remove</span>.</li>
+                        <li>Hover and click the arrow to <span class="text-gray-900 dark:text-white font-medium">rotate</span>.</li>
+                        <li>Right-click to <span class="text-gray-900 dark:text-white font-medium">flip</span>.</li>
+                        <li>Double-click to <span class="text-gray-900 dark:text-white font-medium">remove</span>.</li>
                     </ul>
                 </div>
                 <div>
-                    <strong class="text-white block mb-1">📱 Mobile</strong>
+                    <strong class="text-gray-900 dark:text-white block mb-1">📱 Mobile</strong>
                     <ul class="list-disc pl-5 space-y-1">
                         <li>Tap a tile above to select, tap an empty space to place.</li>
-                        <li>Tap a tile on the board to <span class="text-white font-medium">rotate</span>.</li>
-                        <li>Tap and hold to <span class="text-white font-medium">flip</span>.</li>
-                        <li>Double-tap to <span class="text-white font-medium">remove</span>.</li>
+                        <li>Tap a tile on the board to <span class="text-gray-900 dark:text-white font-medium">rotate</span>.</li>
+                        <li>Tap and hold to <span class="text-gray-900 dark:text-white font-medium">flip</span>.</li>
+                        <li>Double-tap to <span class="text-gray-900 dark:text-white font-medium">remove</span>.</li>
                     </ul>
                 </div>
 
-                <div class="mt-6 pt-4 border-t border-gray-700 text-xs text-center text-gray-500">
-                    Icons made by <a href="https://www.freepik.com" target="_blank" class="hover:text-blue-400">Freepik</a> from <a href="https://www.flaticon.com/" target="_blank" class="hover:text-blue-400">www.flaticon.com</a>
+                <div class="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 text-xs text-center text-gray-400 dark:text-gray-500">
+                    Icons made by <a href="https://www.freepik.com" target="_blank" class="hover:text-blue-500 dark:hover:text-blue-400">Freepik</a> from <a href="https://www.flaticon.com/" target="_blank" class="hover:text-blue-500 dark:hover:text-blue-400">www.flaticon.com</a>
                 </div>
             </div>
         </div>

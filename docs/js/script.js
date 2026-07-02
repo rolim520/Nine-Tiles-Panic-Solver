@@ -64,6 +64,7 @@ async function loadData() {
 }
 
 function initializeApp() {
+    initTheme();
     document.getElementById('loading-overlay').style.display = 'none';
     renderBoard();
     renderCardSelection();
@@ -101,8 +102,8 @@ function renderBoard() {
                 cell.classList.add('selected-for-swap');
             }
         } else {
-            cell.classList.add('bg-gray-700/50', 'flex', 'items-center', 'justify-center', 'border-2', 'border-dashed', 'border-gray-600');
-            cell.innerHTML = `<span class="text-4xl text-gray-600">+</span>`;
+            cell.classList.add('bg-gray-100/50', 'dark:bg-gray-700/50', 'flex', 'items-center', 'justify-center', 'border-2', 'border-dashed', 'border-gray-300', 'dark:border-gray-600');
+            cell.innerHTML = `<span class="text-4xl text-gray-400 dark:text-gray-600">+</span>`;
         }
         boardEl.appendChild(cell);
     });
@@ -124,14 +125,14 @@ function renderCardSelection() {
         cardEl.dataset.cardId = card.number;
         
         // Classes base usando Tailwind para criar a aparência de item de lista
-        cardEl.className = 'card bg-gray-800 border-gray-700 rounded-lg p-2 cursor-pointer transition-all duration-200 hover:bg-gray-700 flex items-center space-x-3 w-full';
+        cardEl.className = 'card bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-lg p-2 cursor-pointer transition-all duration-200 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center space-x-3 w-full';
         
         // Estrutura interna: Círculo com o número e texto com o nome
         cardEl.innerHTML = `
-            <span class="flex items-center justify-center bg-gray-900 text-blue-400 rounded-full w-8 h-8 font-bold text-sm shrink-0 border border-gray-700">
+            <span class="flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-blue-600 dark:text-blue-400 rounded-full w-8 h-8 font-bold text-sm shrink-0 border border-gray-200 dark:border-gray-700">
                 ${card.number}
             </span>
-            <span class="font-medium text-gray-200 text-sm leading-tight select-none">
+            <span class="font-medium text-gray-800 dark:text-gray-200 text-sm leading-tight select-none">
                 ${card.name}
             </span>
         `;
@@ -142,9 +143,7 @@ function renderCardSelection() {
             // Se estiver selecionado, a classe .card.selected do CSS fará o destaque
             cardEl.classList.add('selected');
         } else if (isAtLimit) {
-            // SE não está selecionada E o limite foi atingido, aplica o "Dimming"
-            cardEl.classList.add('opacity-40', 'cursor-not-allowed');
-            cardEl.classList.remove('hover:bg-gray-700'); // Remove o hover se estiver desabilitado
+            cardEl.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
         }
         
         desktopGrid.appendChild(cardEl);
@@ -190,14 +189,14 @@ function updateStats() {
     const titleEl = document.getElementById('selected-cards-stats-title');
 
     if (appState.board.some(t => t === null)) {
-        statsPanel.innerHTML = '<p class="text-gray-500">Fill the board to see the statistics.</p>';
+        statsPanel.innerHTML = '<p class="text-gray-500 dark:text-gray-400">Fill the board to see the statistics.</p>';
         titleEl.innerHTML = '';
         return;
     }
     
     // Step 1: Call validation in Python
     if (typeof window.validate_current_board === 'function') {
-        statsPanel.innerHTML = '<p class="text-gray-500">Validating board...</p>';
+        statsPanel.innerHTML = '<p class="text-gray-500 dark:text-gray-400">Validating board...</p>';
         window.validate_current_board();
     }
 }
@@ -209,12 +208,12 @@ function validationCallback(resultJson) {
     if (result.isValid) {
         // Step 2: If valid, call statistics analysis in Python
         if (typeof window.analyze_current_board === 'function') {
-            statsPanel.innerHTML = '<p class="text-gray-500">Calculating statistics...</p>';
+            statsPanel.innerHTML = '<p class="text-gray-500 dark:text-gray-400">Calculating statistics...</p>';
             window.analyze_current_board();
         }
     } else {
         // If invalid, show the error in normal colors
-        statsPanel.innerHTML = `<p class="text-gray-200 font-bold">Invalid Board:</p><p class="text-gray-400">${result.error}</p>`;
+        statsPanel.innerHTML = `<p class="text-gray-800 dark:text-gray-200 font-bold">Invalid Board:</p><p class="text-gray-500 dark:text-gray-400">${result.error}</p>`;
         document.getElementById('selected-cards-stats-title').innerHTML = '';
     }
 }
@@ -260,17 +259,17 @@ function updateStatsCallback(statsJson) {
 
         // DESTAQUE: SCORE TOTAL (Com subtítulo sutil)
         html += `
-            <div class="bg-gradient-to-r from-blue-900/60 to-indigo-900/60 border border-blue-700/50 rounded-lg p-4 mb-5 shadow-md flex justify-between items-center">
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/60 dark:to-indigo-900/60 border border-blue-200 dark:border-blue-700/50 rounded-lg p-4 mb-5 shadow-md flex justify-between items-center">
                 <div class="flex flex-col">
-                    <span class="text-lg font-bold text-white leading-tight">Total Score</span>
-                    <span class="text-xs text-blue-300/70 font-medium mt-0.5">Geometric Mean</span>
+                    <span class="text-lg font-bold text-gray-900 dark:text-white leading-tight">Total Score</span>
+                    <span class="text-xs text-blue-600/70 dark:text-blue-300/70 font-medium mt-0.5">Geometric Mean</span>
                 </div>
-                <span class="text-3xl font-bold text-blue-300 drop-shadow-md">${flooredMean.toFixed(1)}</span>
+                <span class="text-3xl font-bold text-blue-700 dark:text-blue-300 drop-shadow-md">${flooredMean.toFixed(1)}</span>
             </div>
         `;
 
         // SEÇÃO: SCORES DOS OBJETIVOS INDIVIDUAIS
-        html += `<h3 class="font-bold text-white mb-3 border-b border-gray-700 pb-1">Objective Scores</h3>`;
+        html += `<h3 class="font-bold text-gray-900 dark:text-white mb-3 border-b border-gray-200 dark:border-gray-700 pb-1">Objective Scores</h3>`;
         html += `<div class="space-y-2 mb-6">`; 
         
         cardScores.forEach(({ card, rawValue, score }) => {
@@ -278,14 +277,14 @@ function updateStatsCallback(statsJson) {
             const flooredScore = Math.floor(score * 10) / 10;
             
             html += `
-                <div class="bg-blue-900/40 border border-blue-800/50 rounded p-2 shadow-sm">
+                <div class="bg-blue-50 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800/50 rounded p-2 shadow-sm">
                     <div class="flex justify-between items-center mb-1">
-                        <span class="text-blue-100 font-bold text-sm">${card.name}</span>
-                        <span class="text-blue-400 font-bold text-lg">${flooredScore.toFixed(1)}</span>
+                        <span class="text-blue-800 dark:text-blue-100 font-bold text-sm">${card.name}</span>
+                        <span class="text-blue-600 dark:text-blue-400 font-bold text-lg">${flooredScore.toFixed(1)}</span>
                     </div>
-                    <div class="text-xs text-gray-400 flex justify-between items-center">
+                    <div class="text-xs text-gray-500 dark:text-gray-400 flex justify-between items-center">
                         <span class="capitalize">${card.key.replace(/_/g, ' ')}</span>
-                        <span class="bg-gray-800 px-2 py-0.5 rounded text-gray-300">Value: ${rawValue}</span>
+                        <span class="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-700 dark:text-gray-300">Value: ${rawValue}</span>
                     </div>
                 </div>
             `;
@@ -294,20 +293,20 @@ function updateStatsCallback(statsJson) {
     }
 
     // SEÇÃO: MÉTRICAS GERAIS DO TABULEIRO
-    html += `<h3 class="font-bold text-gray-400 mb-2 border-b border-gray-700 pb-1">Board Metrics</h3>`;
+    html += `<h3 class="font-bold text-gray-500 dark:text-gray-400 mb-2 border-b border-gray-200 dark:border-gray-700 pb-1">Board Metrics</h3>`;
     html += `<div class="space-y-1">`;
 
     const allStats = Object.entries(stats).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
 
     for (const [key, value] of allStats) {
         const isUsed = Array.from(appState.selectedCards).some(id => gameData.cardMap.get(id)?.key === key);
-        const bgColor = isUsed ? 'bg-gray-800' : 'hover:bg-gray-800/50';
-        const textColor = isUsed ? 'text-gray-300 font-semibold' : 'text-gray-500';
+        const bgColor = isUsed ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-100 dark:hover:bg-gray-800/50';
+        const textColor = isUsed ? 'text-gray-700 dark:text-gray-300 font-semibold' : 'text-gray-500';
 
         html += `
             <div class="flex justify-between items-center py-1 px-2 rounded ${bgColor} transition-colors">
                 <span class="${textColor} capitalize text-xs">${key.replace(/_/g, ' ')}:</span>
-                <span class="font-mono text-gray-400 text-sm">${value}</span>
+                <span class="font-mono text-gray-600 dark:text-gray-400 text-sm">${value}</span>
             </div>`;
     }
     html += `</div>`;
@@ -631,6 +630,43 @@ function attachEventListeners() {
                 helpModal.classList.add('hidden');
             }
         });
+    }
+}
+
+// =============================================================================
+// Theme Toggle
+// =============================================================================
+function getTheme() {
+    return localStorage.getItem('theme') || 'dark';
+}
+
+function applyTheme(theme) {
+    const html = document.documentElement;
+    const sunIcon = document.getElementById('theme-toggle-icon-sun');
+    const moonIcon = document.getElementById('theme-toggle-icon-moon');
+    
+    if (theme === 'light') {
+        html.classList.remove('dark');
+        if (sunIcon) sunIcon.classList.add('hidden');
+        if (moonIcon) moonIcon.classList.remove('hidden');
+    } else {
+        html.classList.add('dark');
+        if (sunIcon) sunIcon.classList.remove('hidden');
+        if (moonIcon) moonIcon.classList.add('hidden');
+    }
+    localStorage.setItem('theme', theme);
+}
+
+function toggleTheme() {
+    const current = getTheme();
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+function initTheme() {
+    applyTheme(getTheme());
+    const toggleBtn = document.getElementById('theme-toggle-btn');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', toggleTheme);
     }
 }
 
