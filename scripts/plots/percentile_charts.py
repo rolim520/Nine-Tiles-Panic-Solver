@@ -15,8 +15,10 @@ OUTPUT_IMAGE_2 = 'images/longest_road_fda.pdf'
 
 plt.rcParams.update({
     'font.size': 12,
-    'axes.titlesize': 14,
-    'axes.labelsize': 12,
+    'axes.titlesize': 18,
+    'axes.labelsize': 16,
+    'xtick.labelsize': 14,
+    'ytick.labelsize': 14,
     'grid.alpha': 0.5,
     'figure.autolayout': True
 })
